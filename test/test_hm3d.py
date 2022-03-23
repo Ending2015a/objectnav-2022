@@ -10,6 +10,7 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 sys.path.append('/src/')
 import lib
+from lib.semantic_mapping import SemanticMapping
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
@@ -17,22 +18,36 @@ RIGHT_KEY   = "d"
 FINISH      = "f"
 QUIT        = "q"
 
-CONFIG_PATH = '/src/configs/challenge/challenge_objectnav2022.local.val_mini.rgbd.yaml'
-# bgr
+CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
 
-def make_graph(observations):
+semantic_mapping = None
+semantic = None
+
+def on_click_semantic_info(event, x, y, flags, param):
+  global semantic, semantic_mapping
+  if event == cv2.EVENT_LBUTTONDBLCLK:
+    if semantic is None or semantic_mapping is None:
+      return
+    obj_id = semantic[y][x].item()
+    print(f"On click (x, y) = ({x}, {y})")
+    semantic_mapping.print_object_info(obj_id, verbose=True)
+
+
+def show_sensors(semantic_mapping, observations):
+  global semantic
   rgb = observations['rgb']
   depth = observations['depth']
-  #semantic = observations['semantic']
+  semantic = observations['semantic']
   #print(semantic.dtype)
   # depth map (h, w, 1) -> (h, w, 3)
   depth = (np.concatenate((depth,)*3, axis=-1) * 255.0).astype(np.uint8)
   # color image rgb -> bgr
   bgr = rgb[:, :, [2,1,0]]
   # semantic
-  #seg = semantic_colors[semantic]
+  seg = semantic_mapping.get_categorical_map(semantic)
   scene = np.concatenate((bgr, depth), axis=1)
-  #scene = np.concatenate((bgr, depth, seg), axis=1)
+  cv2.imshow("rgb+depth", scene)
+  cv2.imshow("semantic", seg)
   return scene
 
 def example():
@@ -40,6 +55,11 @@ def example():
   env = habitat.Env(
     config=config
   )
+  global semantic_mapping
+  semantic_mapping = SemanticMapping(env)
+  semantic_mapping.print_semantic_meaning()
+  cv2.namedWindow('semantic')
+  cv2.setMouseCallback('semantic', on_click_semantic_info)
 
   print("Environment creation successful")
   while True:
@@ -51,7 +71,7 @@ def example():
     print(f'  Object goal: {observations["objectgoal"]}')
     print(f"  GPS: ({observations['gps'][1]:.5f}, {observations['gps'][0]:.5f}), compass: {observations['compass'][0]:.5f}")
 
-    cv2.imshow('Sensors', make_graph(observations))
+    show_sensors(semantic_mapping, observations)
 
     print("Agent stepping around inside environment.")
 
@@ -84,8 +104,7 @@ def example():
       print('Observations:')
       print(f"  GPS: ({observations['gps'][1]:.5f}, {observations['gps'][0]:.5f}), compass: {observations['compass'][0]:.5f}")
 
-
-      cv2.imshow('Sensors', make_graph(observations))
+      show_sensors(semantic_mapping, observations)
 
       metrics = env.get_metrics()
       print('Metrics:')
