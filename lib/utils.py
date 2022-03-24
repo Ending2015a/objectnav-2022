@@ -4,7 +4,7 @@ import sys
 import time
 import logging
 import math
-from typing import Any, Tuple
+from typing import Any, Tuple, Dict
 import dataclasses
 # --- 3rd party ---
 import numpy as np
@@ -13,7 +13,7 @@ from torch import nn
 import pandas as pd
 # --- my module ---
 
-# === initialize data ===
+# === Loading mp3d hm3d semantic labels ===
 LIB_PATH = os.path.dirname(os.path.abspath(__file__))
 # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
 MPCAT40_PATH = os.path.join(LIB_PATH, 'mpcat40.tsv')
@@ -37,16 +37,18 @@ def dataclass_factory(df, name):
       for column in df.columns
     })
     cat_insts.append(cat_inst)
-  return cat_insts
+  return _class, cat_insts
 
-mpcat40categories = dataclass_factory(MPCAT40_DF, 'MPCat40Category')
-hm3dcategories = dataclass_factory(CATEGORY_MAPPING_DF, 'HM3DCategory')
+MPCat40Category, mpcat40categories = \
+  dataclass_factory(MPCAT40_DF, 'MPCat40Category')
+HM3DCategory, hm3dcategories = \
+  dataclass_factory(CATEGORY_MAPPING_DF, 'HM3DCategory')
 
 hex2rgb = lambda hex: [int(hex[i:i+2], 16) for i in (1, 3, 5)]
 hex2bgr = lambda hex: hex2rgb(hex)[::-1]
 
 
-def hm3d_to_mpcat40_category_map():
+def hm3d_to_mpcat40_category_map() -> Dict[str, MPCat40Category]:
   # mapping by either category name
   # default: category name
   mpcat40_name_to_category = {
@@ -61,7 +63,7 @@ def hm3d_to_mpcat40_category_map():
       mpcat40_name_to_category[hm3dcat.mpcat40]
   return hm3d_name_to_mpcat40
 
-def mpcat40_color_map(bgr=False):
+def mpcat40_color_map(bgr=False) -> np.ndarray:
   colors = [
     hex2rgb(mpcat40cat.hex) if not bgr else hex2bgr(mpcat40cat.hex)
     for mpcat40cat in mpcat40categories
@@ -69,7 +71,8 @@ def mpcat40_color_map(bgr=False):
   colors = np.asarray(colors, dtype=np.uint8)
   return colors
 
-def hm3d_color_map(bgr=False):
+def hm3d_color_map(bgr=False) -> Dict[str, np.ndarray]:
+  """Deprecated"""
   cat_map = hm3d_to_mpcat40_category_map()
   colors = {
     cat_name: hex2rgb(mpcat40cat.hex) if not bgr else

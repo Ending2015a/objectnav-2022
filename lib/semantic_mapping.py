@@ -1,19 +1,37 @@
 # --- built in ---
-from typing import Dict
+from typing import Dict, Optional, Union
 # --- 3rd party ---
 import numpy as np
+import habitat
+from habitat_sim.scene import (
+  SemanticLevel,
+  SemanticRegion,
+  SemanticObject
+)
 # --- my module ---
 from lib import utils
 
 class SemanticMapping():
   def __init__(
     self,
-    env,
+    env: habitat.Env,
     bgr: bool = True,
     default_category: str = 'unknown'
   ):
+    """SemanticMapping provides an interface for mapping
+    HM3D dataset's semantic meanings to MP3D dataset's
+    semantic meanings
+
+    Args:
+      env (habitat.Env): habitat environments
+      bgr (bool, optional): channel order of the image. BGR or RGB.
+        Defaults to True.
+      default_category (str, optional): default mpcat40 category for
+        unlabeled/unknown objects in HM3D. Defaults to 'unknown'.
+    """
     self.semantics = env.sim.semantic_annotations()
-    self.object_id_to_object = {}
+    self.object_id_to_object: Dict[int, SemanticObject] = {}
+    # ---
     self.parse_semantics()
     self.hm3d_mapping = HM3DMapping(
       self,
@@ -29,41 +47,84 @@ class SemanticMapping():
     for object in self.semantics.objects:
       self.parse_object(object)
 
-  def parse_level(self, level):
+  def parse_level(self, level: SemanticLevel):
     for region in level.regions:
       self.parse_region(region)
 
-  def parse_region(self, region):
+  def parse_region(self, region: SemanticRegion):
     for object in region.objects:
       self.parse_object(object)
   
-  def parse_object(self, object):
+  def parse_object(self, object: SemanticObject):
     obj_id = int(object.id.split('_')[-1])
     self.object_id_to_object[obj_id] = object
   
-  def print_semantic_meaning(self, limit_output=3):
-    def _print_scene(scene, limit_output=10):
+  def print_semantic_meaning(self, top_n: int=3):
+    """Print top N semantic meanings
+
+    Args:
+      top_n (int, optional): number of semantic meanings to print.
+        Defaults to 3.
+    """
+    def _print_scene(scene, top_n=10):
       count = 0
       for region in scene.regions:
         for obj in region.objects:
           self.print_object_info(obj)
           count += 1
-          if count >= limit_output:
+          if count >= top_n:
             return None
-    _print_scene(self.semantics, limit_output=limit_output)
+    _print_scene(self.semantics, top_n=top_n)
 
-  def get_categorical_map(self, hm3d_obj_id_map: np.ndarray):
+  def get_categorical_map(
+    self,
+    hm3d_obj_id_map: np.ndarray
+  ) -> np.ndarray:
+    """Create colorized mpcat40 categorical map
+
+    Args:
+      hm3d_obj_id_map (np.ndarray): expecting a 2D image (h, w),
+        where each element is the object id in HM3D dataset. Usually
+        this is the output from the semantic sensors.
+
+    Returns:
+        np.ndarray: colorized mpcat40 semantic segmentation image
+          (h, w, 3).
+    """
     # semantic_map: (h, w)
     return self.hm3d_mapping.get_mpcat40_category_map(hm3d_obj_id_map)
 
-  def get(self, object_id):
-    return self.object_id_to_object.get(object_id)
+  def get(self, object_id: int) -> Optional[SemanticObject]:
+    """Get SemanticObject by object ID
 
-  def print_object_info(self, object, verbose=False):
+    Args:
+      object_id (int): object's ID in HM3D dataset
+
+    Returns:
+      SemanticObject: the corresponding object's semantic meanings
+        if the ID does not exist, then return None.
+    """
+    return self.object_id_to_object.get(object_id, None)
+
+  def print_object_info(
+    self,
+    object: Union[int, SemanticObject],
+    verbose=False
+  ):
+    """Print object's semantic meanings in HM3D dataset
+    set `verbose`=True for its corresponding mpcat40 semantic
+    meanings.
+
+    Args:
+      object (Union[int, SemanticObject]): object id or object.
+      verbose (bool, optional): whether to print mpcat40 semantic
+        meanings. Defaults to False.
+    """
     # verbose: print mpcat40 info
-    if isinstance(object, int):
-      object = self.get(object)
-    assert object is not None
+    if not isinstance(object, SemanticObject):
+      _object = self.get(object)
+      assert _object is not None, f"object not found: {object}"
+      object = _object
     print("==================")
     print(
       f"Object ID: {object.id}\n"
@@ -85,13 +146,22 @@ class HM3DMapping():
     bgr: bool = True,
     default_category: str = 'unknown',
   ):
-    """This class helps to mapping the hm3d object id to
-    mpcat40 cateogry id, name, colors
+    """HM3DMapping helps mapping the HM3D dataset ID to
+    mpcat40 category id, name, definitoins.
+
+    Args:
+      semantic_mapping (SemanticMapping): parsed semantic meaning.
+      bgr (bool, optional): channel order of the image. BGR or RGB.
+        Defaults to True.
+      default_category (str, optional): default mpcat40 category for
+        unlabeled/unknown objects in HM3D. Defaults to 'unknown'.
     """
     self.semantic_mapping = semantic_mapping
-    self.hm3d_to_mpcat40_category_map = utils.hm3d_to_mpcat40_category_map()
+    self.hm3d_to_mpcat40_category_map = \
+      utils.hm3d_to_mpcat40_category_map()
     self.mpcat40_color_map = utils.mpcat40_color_map(bgr=bgr)
     self.default_category = default_category
+    # HM3D category name to MP3D raw category name
     self.manual_mapping = {
       'kitchen tools': 'kitchen utencil',
       'bedside cabinet': 'cabinet',
@@ -118,15 +188,25 @@ class HM3DMapping():
       mpcat40cat = self.hm3d_to_mpcat40_category_map[category_name]
       self.hm3d_obj_id_to_mpcat40_category_id[obj_id] = mpcat40cat.mpcat40index
 
-  def get_mpcat40cat(self, hm3d_obj_id):
+  def get_mpcat40cat(
+    self,
+    hm3d_obj_id: int
+  ) -> utils.MPCat40Category:
+    """Get mpcat40 category definitions by giving HM3D object ID"""
     mpcat40cat_id = self.hm3d_obj_id_to_mpcat40_category_id[hm3d_obj_id]
     return utils.mpcat40categories[mpcat40cat_id]
 
-  def get_mpcat40_category_id_map(self, hm3d_obj_id_map):
+  def get_mpcat40_category_id_map(
+    self,
+    hm3d_obj_id_map: np.ndarray
+  ) -> np.ndarray:
     """Raw category map (index)"""
     return self._get_mpcat40_category_id_map(hm3d_obj_id_map)
 
-  def get_mpcat40_category_map(self, hm3d_obj_id_map):
+  def get_mpcat40_category_map(
+    self,
+    hm3d_obj_id_map: np.ndarray
+  ) -> np.ndarray:
     """Colorized category map (rgb or bgr)"""
     return self.mpcat40_color_map[
       self.get_mpcat40_category_id_map(hm3d_obj_id_map)
