@@ -1,11 +1,13 @@
 # --- built in ---
 import os
 import sys
+import socket
 # --- 3rd party ---
 import cv2
 import gym
 import habitat
 import numpy as np
+import ray
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 sys.path.append('/src/')
@@ -23,15 +25,61 @@ CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
 semantic_mapping = None
 semantic = None
 
-def on_click_semantic_info(event, x, y, flags, param):
-  global semantic, semantic_mapping
-  if event == cv2.EVENT_LBUTTONDBLCLK:
-    if semantic is None or semantic_mapping is None:
-      return
-    obj_id = semantic[y][x].item()
-    print(f"On click (x, y) = ({x}, {y})")
-    semantic_mapping.print_object_info(obj_id, verbose=True)
+@ray.remote(num_cpus=0)
+class _RemoteWrapper():
+  def __init__(self, config, show=False):
+    print(socket.gethostbyname(socket.gethostname()))
+    self.show = show
+    self.env = habitat.Env(config=config)
 
+  def step(self, action):
+    observations = self.env.step(action)
+    if self.show:
+      cv2.imshow("RGB", observations['rgb'][...,::-1])
+
+  def reset(self):
+    observations = self.env.reset()
+    if self.show:
+      cv2.imshow("RGB", observations['rgb'][...,::-1])
+    return observations
+
+  def call(self, func, *args, **kwargs):
+    return getattr(self.env, func)(*args, **kwargs)
+
+  def get_annotations(self):
+    return self.env.sim.semantic_annotations()
+
+  def getattr(self, name):
+    return getattr(self.env, name)
+
+  def setattr(self, name, value):
+    return setattr(self.env, name, value)
+
+
+class RemoteHabitat():
+  def __init__(self, config):
+    self.env = _RemoteWrapper.remote(config)
+  
+  def step(self, action):
+    return ray.get(self.env.step.remote(action))
+  
+  def reset(self):
+    return ray.get(self.env.reset.remote())
+
+  def get_annotations(self):
+    return ray.get(self.env.get_annotations.remote())
+
+  @property
+  def current_episode(self):
+    return ray.get(self.env.getattr.remote('current_episode'))
+  
+  @property
+  def episode_over(self):
+    return ray.get(self.env.getattr.remote('episode_over'))
+  
+  @property
+  def get_metrics(self):
+    return ray.get(self.env.call.remote('get_metrics'))
 
 def show_sensors(semantic_mapping, observations):
   global semantic
@@ -52,19 +100,18 @@ def show_sensors(semantic_mapping, observations):
 
 def example():
   config = lib.get_config(CONFIG_PATH)
-  env = habitat.Env(
-    config=config
-  )
+  remote_env = RemoteHabitat.remote(config)
+
   global semantic_mapping
-  semantic_mapping = SemanticMapping(env.sim.semantic_annotations())
+  semantic_mapping = SemanticMapping(remote_env.get_annotations())
   semantic_mapping.print_semantic_meaning()
-  cv2.namedWindow('semantic')
-  cv2.setMouseCallback('semantic', on_click_semantic_info)
 
   print("Environment creation successful")
   while True:
-    observations = env.reset()
-    print('Episode id: {}, scene id: {}'.format(env.current_episode.episode_id, env.current_episode.scene_id))
+    observations = remote_env.reset()
+    exit(1)
+    print('Episode id: {}, scene id: {}'.format(
+      remote_env.current_episode.episode_id, remote_env.current_episode.scene_id))
 
       # --- show observations ---
     print('Observations:')
@@ -76,7 +123,7 @@ def example():
     print("Agent stepping around inside environment.")
 
     count_steps = 0
-    while not env.episode_over:
+    while not remote_env.episode_over:
       keystroke = cv2.waitKey(0)
 
       if keystroke == ord(FORWARD_KEY):
@@ -98,7 +145,7 @@ def example():
         print("INVALID KEY")
         continue
 
-      observations = env.step(action)
+      observations = remote_env.step(action)
       count_steps += 1
       # --- show observations ---
       print('Observations:')
@@ -106,7 +153,7 @@ def example():
 
       show_sensors(semantic_mapping, observations)
 
-      metrics = env.get_metrics()
+      metrics = remote_env.get_metrics()
       print('Metrics:')
       print('  distance to goal: {:.3f}'.format(metrics['distance_to_goal']))
       print('  success: {}, spl: {:.3f}, softspl: {:.3f}'.format(
@@ -116,5 +163,6 @@ def example():
     print("Episode finished after {} steps.".format(count_steps))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+  ray.init(TODO)
   example()

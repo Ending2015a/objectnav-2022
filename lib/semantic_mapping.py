@@ -14,7 +14,7 @@ from lib import utils
 class SemanticMapping():
   def __init__(
     self,
-    env: habitat.Env,
+    semantic_annotations,
     bgr: bool = True,
     default_category: str = 'unknown'
   ):
@@ -29,7 +29,7 @@ class SemanticMapping():
       default_category (str, optional): default mpcat40 category for
         unlabeled/unknown objects in HM3D. Defaults to 'unknown'.
     """
-    self.semantics = env.sim.semantic_annotations()
+    self.semantics = semantic_annotations
     self.object_id_to_object: Dict[int, SemanticObject] = {}
     # ---
     self.parse_semantics()
