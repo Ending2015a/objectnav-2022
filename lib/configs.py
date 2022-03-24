@@ -8,6 +8,11 @@ from habitat.config.default import (
     DEFAULT_CONFIG_DIR,
 )
 
+__all__ = [
+    'get_config',
+    'finetune_config'
+]
+
 _C = habitat_get_config()
 _C.defrost()
 
@@ -230,5 +235,29 @@ def get_config(
     if opts:
         config.merge_from_list(opts)
 
+    config.freeze()
+    return config
+
+
+
+def finetune_config(
+    config,
+    seed: int = 0,
+    shuffle: bool = False,
+    max_scene_repeat_episodes: int = 10,
+    width: int = 640,
+    height: int = 480
+):
+    config.defrost()
+    config.SEED = seed
+    config.ENVIRONMENT.ITERATOR_OPTIONS = CN()
+    config.ENVIRONMENT.ITERATOR_OPTIONS.SHUFFLE = shuffle
+    config.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_EPISODES = max_scene_repeat_episodes
+    config.SIMULATOR.SEMANTIC_SENSOR.WIDTH = width
+    config.SIMULATOR.SEMANTIC_SENSOR.HEIGHT = height
+    config.SIMULATOR.RGB_SENSOR.WIDTH = width
+    config.SIMULATOR.RGB_SENSOR.HEIGHT = height
+    config.SIMULATOR.DEPTH_SENSOR.WIDTH = width
+    config.SIMULATOR.DEPTH_SENSOR.HEIGHT = height
     config.freeze()
     return config
