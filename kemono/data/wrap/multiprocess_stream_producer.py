@@ -9,21 +9,14 @@ from typing import (
   Any,
   Dict,
   Optional,
-  Callable,
-  List,
-  Union,
-  Tuple,
-  Iterable,
-  Iterator
+  Callable
 )
 # --- 3rd party ---
 import cloudpickle
-import tensorflow as tf
 import numpy as np
 # --- my module ---
-from lib.data import dataspec as lib_dataspec
-from lib.data.stream_producer import BaseStreamProducer, StreamInfo
-from lib.data.wrap.stream_producer_wrapper import StreamProducerWrapper
+from kemono.data.stream_producer import BaseStreamProducer, StreamInfo
+from kemono.data.wrap.stream_producer_wrapper import StreamProducerWrapper
 
 def debug_info(v):
   """print data infos"""
@@ -85,7 +78,7 @@ class CloudpickleWrapper():
   def __setstate__(self, obj):
     self.packed_obj = cloudpickle.loads(obj)
 
-def process_stream_reader(
+def stream_process_worker(
   id: int,
   result_queue: multiprocessing.Queue,
   task_queue: multiprocessing.Queue,
@@ -116,7 +109,9 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
     num_threads: Optional[int] = None,
     env_vars: Optional[Dict[str, str]] = None
   ):
-    """_summary_
+    """Faster stream producer using multi processing.
+    Usually this wrapper is wrapped at the final layer of your
+    stream producer.
 
     Args:
         stream_producer (BaseStreamProducer): main stream producer for generating
@@ -168,7 +163,7 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
         CloudpickleWrapper(self.stream_producer_fn),
         self.stop_signal
       )
-      thread = ctx.Process(target=process_stream_reader, args=args, daemon=True)
+      thread = ctx.Process(target=stream_process_worker, args=args, daemon=True)
       thread.start()
       self.threads.append(thread)
 
@@ -179,7 +174,7 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
       else:
         os.environ[ev_key] = orig_ev[ev_key]
 
-  def closed(self):
+  def closed(self) -> bool:
     return self.stream_producer.closed()
 
   def close(self):
@@ -192,7 +187,16 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
     # close stream producer
     self.stream_producer.close()
 
-  def prefetch(self, num_samples=None):
+  def prefetch(
+    self,
+    num_samples: Optional[int] = None
+  ) -> "MultiprocessStreamProducer":
+    """Prefetch streams.
+    
+    Args:
+      num_samples (int, optional): number of streams to prefetch.
+        if None or -1, all streams are placed into pending queue.
+    """
     if num_samples is None or num_samples < 0:
       num_samples = self.buffer.qsize()
     for i in range(num_samples):
@@ -210,10 +214,20 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
     self.task_queue.put(stream)
     self.task_counter.increase()
   
-  def read_stream(self, stream_info):
+  def read_stream(self, stream_info: StreamInfo) -> Any:
     return self.stream_producer.read_stream(stream_info)
 
-  def get_stream(self, block=True):
+  def get_stream(self, block: bool=True) -> Any:
+    """Get one loaded stream and push a new tasks into stream pending
+    queue.
+
+    Args:
+      block (bool, optional): whether to block threads until at least
+        one stream is loaded. Defaults to True.
+
+    Returns:
+        Any: loaded stream
+    """
     # push new tasks into pending queue if
     # sample buffer is not empty
     try:

@@ -12,8 +12,7 @@ from torch import nn
 import einops
 import unstable_baselines as ub
 # --- my module ---
-import lib
-from lib import utils
+import kemono
 
 class DepthProjection():
   """DepthProjection provides utility functions for projecting depth maps

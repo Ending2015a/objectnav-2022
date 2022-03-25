@@ -1,11 +1,12 @@
 # --- built in ---
+from typing import Any, Tuple
 # --- 3rd party ---
 import numpy as np
 import rlchemy
 # --- my module ---
-from lib.data.dataset import SequentialDataset
-from lib.data.stream_producer import BaseStreamProducer
-from lib.data.cache import Cache
+from kemono.data.dataset import SequentialDataset
+from kemono.data.stream_producer import BaseStreamProducer
+from kemono.data.cache import Cache
 
 __all__ = [
   "SequantialDatasetSampler"
@@ -40,7 +41,7 @@ class SequantialDatasetSampler():
     self._cached_inds = None
     self._caches = Cache(self.num_workers)
   
-  def sample(self):
+  def sample(self) -> Tuple[Any, Any]:
     ind, data = next(self._dataset_it)
     ind = rlchemy.utils.to_numpy(ind)
     self._cached_inds = ind

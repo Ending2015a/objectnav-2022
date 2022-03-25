@@ -1,17 +1,20 @@
 # --- bulit in ---
 import os
-import sys
-import time
-import logging
-import math
-from typing import Any, Tuple, Dict
+from typing import Dict
 import dataclasses
 # --- 3rd party ---
 import numpy as np
-import torch
-from torch import nn
 import pandas as pd
 # --- my module ---
+
+__all__ = [
+  'MPCat40Category',
+  'HM3DCategory',
+  'mpcat40categories',
+  'hm3dcategories',
+  'mp3d_category_map',
+  'mpcat40_color_map_rgb'
+]
 
 # === Loading mp3d hm3d semantic labels ===
 LIB_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +51,7 @@ hex2rgb = lambda hex: [int(hex[i:i+2], 16) for i in (1, 3, 5)]
 hex2bgr = lambda hex: hex2rgb(hex)[::-1]
 
 
-def hm3d_to_mpcat40_category_map() -> Dict[str, MPCat40Category]:
+def get_mp3d_category_map() -> Dict[str, MPCat40Category]:
   # mapping by either category name
   # default: category name
   mpcat40_name_to_category = {
@@ -63,7 +66,9 @@ def hm3d_to_mpcat40_category_map() -> Dict[str, MPCat40Category]:
       mpcat40_name_to_category[hm3dcat.mpcat40]
   return hm3d_name_to_mpcat40
 
-def mpcat40_color_map(bgr=False) -> np.ndarray:
+mp3d_category_map = get_mp3d_category_map()
+
+def get_mpcat40_color_map(bgr=False) -> np.ndarray:
   colors = [
     hex2rgb(mpcat40cat.hex) if not bgr else hex2bgr(mpcat40cat.hex)
     for mpcat40cat in mpcat40categories
@@ -71,12 +76,4 @@ def mpcat40_color_map(bgr=False) -> np.ndarray:
   colors = np.asarray(colors, dtype=np.uint8)
   return colors
 
-def hm3d_color_map(bgr=False) -> Dict[str, np.ndarray]:
-  """Deprecated"""
-  cat_map = hm3d_to_mpcat40_category_map()
-  colors = {
-    cat_name: hex2rgb(mpcat40cat.hex) if not bgr else
-      hex2bgr(mpcat40cat.hex)
-    for cat_name, mpcat40cat in cat_map.items()
-  }
-  return colors
+mpcat40_color_map_rgb = get_mpcat40_color_map(bgr=False)

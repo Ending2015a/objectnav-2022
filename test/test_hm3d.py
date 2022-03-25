@@ -8,9 +8,8 @@ import habitat
 import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
-sys.path.append('/src/')
-import lib
-from lib.semantic_mapping import SemanticMapping
+import kemono
+from kemono.semantics import SemanticMapping
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
@@ -51,7 +50,7 @@ def show_sensors(semantic_mapping, observations):
   return scene
 
 def example():
-  config = lib.get_config(CONFIG_PATH)
+  config = kemono.get_config(CONFIG_PATH)
   env = habitat.Env(
     config=config
   )

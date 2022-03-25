@@ -18,7 +18,7 @@ from typing import (
 # --- 3rd party ---
 import numpy as np
 # --- my module ---
-from lib.data import dataspec as lib_dataspec
+from kemono.data import dataspec as km_dataspec
 
 __all__ = [
   'BaseStreamProducer',
@@ -161,7 +161,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
   def gen_dataspec(self):
     # read one stream
     data = self.read_stream(self.get_stream_info())
-    sigs = lib_dataspec.generate_dataspec(data)
+    sigs = km_dataspec.generate_dataspec(data)
     return sigs
 
   def register_callback(self, callback: Any):
@@ -199,7 +199,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       if self.buffer.empty():
         self.recharge()
   
-  def get_stream_info(self, ind=None):
+  def get_stream_info(self, ind: Optional[Any]=None):
     if ind is None:
       ind = 0 # dummy info
     return StreamInfo(index=ind, path=self._stream_paths[ind])
@@ -274,20 +274,20 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
     else:
       return self.iterator(*args, **kwargs)
 
-  def __len__(self):
+  def __len__(self) -> int:
     return self.buffer.qsize()
   
-  def __str__(self):
-      return '<{}({})>'.format(type(self).__name__, len(self._stream_paths))
+  def __str__(self) -> str:
+    return f"<{type(self).__name__}({len(self._stream_paths)})>"
     
-  def __repr__(self):
+  def __repr__(self) -> str:
       return str(self)
 
   def __del__(self):
     if not self.closed():
       self.close()
 
-  def closed(self):
+  def closed(self) -> bool:
     return self._is_closed
   
   def close(self):

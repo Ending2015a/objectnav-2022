@@ -13,8 +13,8 @@ from typing import (
 )
 # --- 3rd party ---
 # --- my module ---
-from lib.data import dataspec as lib_dataspec
-from lib.data.stream_producer import BaseStreamProducer, StreamInfo
+from kemono.data.dataspec import DataSpec, _generate_dataspec
+from kemono.data.stream_producer import BaseStreamProducer, StreamInfo
 
 class StreamProducerWrapper():
   def __init__(self, stream_producer: BaseStreamProducer):
@@ -22,45 +22,47 @@ class StreamProducerWrapper():
     self._dataspec = None
     self.require(BaseStreamProducer)
 
-  def __getattr__(self, name):
+  def __getattr__(self, name: str) -> Any:
     return getattr(self.stream_producer, name)
 
   @property
-  def dataspec(self):
+  def dataspec(self) -> DataSpec:
     if self._dataspec is None:
       self._dataspec = self.gen_dataspec()
     return self._dataspec
 
   @property
-  def unwrapped(self):
+  def unwrapped(self) -> BaseStreamProducer:
     return self.stream_producer.unwrapped
 
-  def gen_dataspec(self):
+  def gen_dataspec(self) -> DataSpec:
     # read one stream
     data = self.read_stream(self.get_stream_info())
-    sigs = lib_dataspec._generate_dataspec(data)
+    sigs = _generate_dataspec(data)
     return sigs
 
-  def closed(self):
+  def closed(self) -> bool:
     return self.stream_producer.closed()
   
-  def close(self):
+  def close(self) -> None:
     return self.stream_producer.close()
 
   def maybe_recharge(self):
     self.stream_producer.maybe_recharge()
 
-  def get_stream_info(self, ind=None):
+  def get_stream_info(self, ind: Any=None) -> StreamInfo:
     return self.stream_producer.get_stream_info(ind)
   
   @abc.abstractmethod
-  def read_stream(self, stream_info: StreamInfo):
+  def read_stream(self, stream_info: StreamInfo) -> Any:
     return self.stream_producer.read_stream(stream_info)
   
-  def get_sample(self):
+  def get_sample(self) -> StreamInfo:
+    """Sample one stream info from the buffer"""
     return self.stream_producer.get_sample()
   
-  def get_stream(self):
+  def get_stream(self) -> StreamInfo:
+    """Get stream info with loaded stream data"""
     try:
       stream_info = self.get_sample()
       data = self.read_stream(stream_info)
@@ -69,7 +71,7 @@ class StreamProducerWrapper():
       return None
     return stream_info
   
-  def iswrapped(self, _class):
+  def iswrapped(self, _class: type) -> bool:
     if not isinstance(self, _class):
       if (hasattr(self.stream_producer, 'iswrapped') and
           callable(self.stream_producer.iswrapped)):
@@ -78,31 +80,36 @@ class StreamProducerWrapper():
         return isinstance(self.stream_producer, _class)
     return True
 
-  def require(self, _class):
+  def require(self, _class: type):
     if not self.iswrapped(_class):
       raise RuntimeError(f"Wrapper `{type(self).__name__}` requires "
         f"`{_class.__name__}`: {self}".format)
   
-  def iterator(self, *args, **kwargs):
+  def iterator(self, *args, **kwargs) -> Iterator:
     while True:
       data = self.get_stream(*args, **kwargs)
       if data is None:
         break
       yield data
 
-  def __call__(self, *args, iterate=False, **kwargs):
-        if not iterate:
-            return self.get_stream(*args, **kwargs)
-        else:
-            return self.iterator(*args, **kwargs)
+  def __call__(
+    self,
+    *args,
+    iterate: bool = False,
+    **kwargs
+  ) -> Union[StreamInfo, Iterator]:
+    if not iterate:
+        return self.get_stream(*args, **kwargs)
+    else:
+        return self.iterator(*args, **kwargs)
     
-  def __len__(self):
+  def __len__(self) -> int:
     return len(self.stream_producer)
 
-  def __str__(self):
-    return '<{}{}>'.format(type(self).__name__, self.stream_producer)
+  def __str__(self) -> str:
+    return f"<{type(self).__name__}{self.stream_producer}>"
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return str(self)
 
   def __del__(self):

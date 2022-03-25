@@ -15,13 +15,14 @@ from distutils.version import StrictVersion as Version
 # --- 3rd party ---
 import numpy as np
 # --- my module ---
-from lib.data import dataspec as lib_dataspec
-from lib.data.stream_producer import BaseStreamProducer, StreamInfo
-from lib.data.wrap.stream_producer_wrapper import StreamProducerWrapper
+from kemono.data.stream_producer import BaseStreamProducer, StreamInfo
+from kemono.data.wrap.stream_producer_wrapper import StreamProducerWrapper
 
 __all__ = [
-    'CombinedStreamProducer'
+  'CombinedStreamProducer'
 ]
+
+# custom stream producer wrappers
 
 class CombinedStreamProducer(StreamProducerWrapper):
   def __init__(
@@ -69,27 +70,27 @@ class CombinedStreamProducer(StreamProducerWrapper):
       producer_id, info = ind
     return StreamInfo(info=info, producer_id=producer_id)
 
-  def read_stream(self, stream_info: StreamInfo):
+  def read_stream(self, stream_info: StreamInfo) -> Any:
     producer = self.stream_producer[stream_info.producer_id]
     data = producer.read_stream(stream_info.info)
     return data
 
-  def get_sample(self):
+  def get_sample(self) -> StreamInfo:
     with self._lock:
       producer_id = self.buffer.get(block=False)
       stream_info = self.stream_producers[producer_id].get_sample()
     return self.get_stream_info((producer_id, stream_info))
   
-  def __str__(self):
+  def __str__(self) -> str:
     wrapped = ', '.join([
       str(producer) for producer in self.stream_producers
     ])
-    return '<{}({})>'.format(type(self).__name__, wrapped)
+    return f"<{type(self).__name__}({wrapped})>"
   
-  def __len__(self):
+  def __len__(self) -> int:
     return self.buffer.qsize()
 
   @property
-  def unwrapped(self):
+  def unwrapped(self) -> BaseStreamProducer:
     # first stream_producer
     return self.stream_producer.unwrapped

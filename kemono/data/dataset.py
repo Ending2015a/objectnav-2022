@@ -1,4 +1,5 @@
 # --- built in ---
+import sys
 import collections
 from typing import (
   Any,
@@ -15,7 +16,7 @@ import torch
 from torch.utils.data import IterableDataset
 import rlchemy
 # --- my module --
-from lib.data.stream_producer import BaseStreamProducer
+from kemono.data.stream_producer import BaseStreamProducer
 
 
 __all__ = [
@@ -31,30 +32,34 @@ class Dataset(IterableDataset):
     self,
     buffer_size: int,
     reshuffle_each_iteration: bool = True
-  ):
+  ) -> "Dataset":
     return ShuffleDataset(
       self,
       buffer_size = buffer_size,
       reshuffle_each_iteration = reshuffle_each_iteration
     )
 
-  def batch(self, batch_size: int, drop_remainder: bool=False):
+  def batch(
+    self,
+    batch_size: int,
+    drop_remainder: bool = False
+  ) -> "Dataset":
     return BatchDataset(self, batch_size, drop_remainder=drop_remainder)
 
   @staticmethod
-  def range(*args, **kwargs):
+  def range(*args, **kwargs) -> "Dataset":
     return RangeDataset(*args, **kwargs)
   
   @staticmethod
-  def from_generator(generator_fn: Callable):
+  def from_generator(generator_fn: Callable) -> "Dataset":
     return GeneratorDataset(generator_fn)
 
   @staticmethod
-  def from_element(element):
+  def from_element(element) -> "Dataset":
     return ElementDataset(element)
 
   @staticmethod
-  def zip(datasets):
+  def zip(datasets) -> "Dataset":
     return ZipDataset(datasets)
 
   @staticmethod
@@ -62,7 +67,7 @@ class Dataset(IterableDataset):
     datasets: Iterable[IterableDataset],
     choose_dataset: IterableDataset,
     stop_on_empty_dataset: bool = True
-  ):
+  ) -> "Dataset":
     return ChooseDataset(
       datasets,
       choose_dataset,
@@ -205,7 +210,10 @@ class ShuffleDataset(Dataset):
         np.random.PCG64(self._seed_sequence)
       )
 
-  def random_pop(self, data_replace: Optional[Any]=None) -> Any:
+  def random_pop(
+    self,
+    data_replace: Optional[Any] = None
+  ) -> Any:
     index = self._rng.choice(len(self._buffer))
     if data_replace is None:
       pop_data = self._buffer.pop(index)
@@ -270,8 +278,7 @@ class SequentialDataset(Dataset):
       BaseStreamProducer, Iterable[BaseStreamProducer]],
     num_workers: Optional[int] = None,
     seq_len: Optional[int] = None,
-    drop_remainder: bool = False,
-    **kwargs
+    drop_remainder: bool = False
   ):
     # multiple workers
     if num_workers is not None:

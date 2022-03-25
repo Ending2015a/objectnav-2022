@@ -11,9 +11,8 @@ import numpy as np
 import ray
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
-sys.path.append('/src/')
-import lib
-from lib.semantic_mapping import SemanticMapping
+import kemono
+from kemono.semantics import SemanticMapping
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
@@ -114,7 +113,7 @@ class VecRemoteHabitat():
     self.env = self.envs[0]
   
   def setup_env(self, config, index):
-    config = lib.configs.finetune_config(
+    config = kemono.configs.finetune_config(
       config,
       seed = index + 100,
       shuffle = True,
@@ -162,7 +161,7 @@ def show_sensors(observations, window_idx=0):
 
 def example():
   print('creating environment')
-  config = lib.get_config(CONFIG_PATH)
+  config = kemono.get_config(CONFIG_PATH)
   remote_env = VecRemoteHabitat(config, n=4)
   #remote_env.hello()
 
@@ -230,7 +229,9 @@ def example():
 
 
 if __name__ == '__main__':
-  ip = os.environ.get("RAY_SERVER_IP")
-  port = os.environ.get("RAY_SERVER_PORT")
+  ip = os.environ.get("RAY_SERVER_IP", None)
+  port = os.environ.get("RAY_SERVER_PORT", 10001)
+  assert ip is not None, "Server IP not specified"
+  print(f"Connect to ray server ray://{ip}:{port}")
   ray.init(address=f"ray://{ip}:{port}")
   example()

@@ -3,8 +3,7 @@ import collections
 from typing import (
   Any,
   Optional,
-  List,
-  Callable
+  List
 )
 # --- 3rd party ---
 import torch
@@ -29,8 +28,8 @@ class NestedCaches():
       'obs': [obs_A, obs_B, obs_C, obs_D],
       'act': [act_A, act_B, act_C, act_D]
     }
-    where A, B, C, D indicates the different indices of data, e.g.
-    different trajectories.
+    where A, B, C, D indicates the data from different sources, i.e.
+    different trajectories
 
     Args:
       buffer_size (int): usually the maximum number of trajectories
@@ -106,7 +105,7 @@ class NestedCaches():
       raise RuntimeError("Buffer space not created, please `add` data, "
         " or calling `melloc` first.")
     # get data
-    def _slice_op(v):
+    def _slice_op(v: torch.Tensor) -> torch.Tensor:
       vs = [v[ind] for ind in indices]
       return torch.stack(vs, dim=self.batch_dim)
     return rlchemy.utils.map_nested(self.data, op=_slice_op)
@@ -131,7 +130,7 @@ class NestedCaches():
     )
 
 class Caches(NestedCaches):
-  def keys(self):
+  def keys(self) -> collections.abc.KeysView:
     return (
       collections.abc.KeysView([])
       if self.isnull else self.data.keys()

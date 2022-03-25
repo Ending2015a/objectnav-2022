@@ -8,8 +8,7 @@ import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat.utils.visualizations import maps
 # --- my module ---
-sys.path.append('/src/')
-import lib
+import kemono
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
@@ -20,7 +19,7 @@ QUIT        = "q"
 CONFIG_PATH = '/src/configs/test/test_mp3d.val_mini.rgbd.yaml'
 
 # bgr
-semantic_colors = lib.utils.map3d_color_map(bgr=True)
+semantic_colors = kemono.utils.map3d_color_map(bgr=True)
 
 def print_semantic_meaning(env):
   def print_scene_recur(scene, limit_output=10):
@@ -141,7 +140,7 @@ def make_graph(observations, metrics, cat_map, objectgoal):
   return scene
 
 def example():
-  config = lib.get_config(CONFIG_PATH)
+  config = kemono.get_config(CONFIG_PATH)
   config.defrost()
   config.TASK.TOP_DOWN_MAP.DRAW_BORDER = False
   config.TASK.TOP_DOWN_MAP.DRAW_GOAL_AABBS = False
