@@ -43,7 +43,7 @@ def show_sensors(semantic_mapping, observations):
   # color image rgb -> bgr
   bgr = rgb[:, :, [2,1,0]]
   # semantic
-  seg = semantic_mapping.get_categorical_map(semantic)
+  seg = semantic_mapping.get_categorical_map(semantic, bgr=True)
   scene = np.concatenate((bgr, depth), axis=1)
   cv2.imshow("rgb+depth", scene)
   cv2.imshow("semantic", seg)
@@ -55,14 +55,15 @@ def example():
     config=config
   )
   global semantic_mapping
-  semantic_mapping = SemanticMapping(env.sim.semantic_annotations())
-  semantic_mapping.print_semantic_meaning()
+  semantic_mapping = SemanticMapping(env._dataset)
   cv2.namedWindow('semantic')
   cv2.setMouseCallback('semantic', on_click_semantic_info)
 
   print("Environment creation successful")
   while True:
     observations = env.reset()
+    semantic_mapping.parse_semantics(env.sim.semantic_annotations())
+    semantic_mapping.print_semantic_meaning()
     print('Episode id: {}, scene id: {}'.format(env.current_episode.episode_id, env.current_episode.scene_id))
 
       # --- show observations ---
