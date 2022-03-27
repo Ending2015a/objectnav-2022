@@ -1,6 +1,4 @@
 # --- built in ---
-import os
-import sys
 from dataclasses import dataclass
 # --- 3rd party ---
 import cv2
@@ -10,22 +8,24 @@ import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 import kemono
-from kemono.semantics import SemanticMapping
+from kemono.envs.wrap import (
+  MapBuilderWrapper,
+  SemanticWrapper
+)
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
 RIGHT_KEY   = "d"
 FINISH      = "f"
+LOOK_UP     = "x"
+LOOK_DOWN   = "z"
 QUIT        = "q"
 
 CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
 
-semantic_mapping = None
-semantic = None
-
 @dataclass
 class TrainEnvSpec():
-  id: str = "Habitat_reward-v1"
+  id: str = "Habitat_reward-v0"
 
 class TrainEnv(habitat.RLEnv):
   metadata = {"render_modes": ['rgb_array', 'human', 'interact']}
@@ -35,36 +35,64 @@ class TrainEnv(habitat.RLEnv):
   def __init__(
     self,
     config: habitat.Config,
-    dataset: habitat.Dataset = None,
-    enable_semantics: bool = False
+    dataset: habitat.Dataset = None
   ):
     super().__init__(config=config, dataset=dataset)
+    self.config = config
+    self.tilt_angle = config.SIMULATOR.TILT_ANGLE
+    self._agent_tilt_angle = 0
     self._cached_obs = None
-    self.semap = None
-    self.setup_interact = False
-    self.semap = SemanticMapping(
-      dataset = self._env._dataset
-    )
-    if enable_semantics:
-      self.semap.parse_semantics(
-        self._env.sim.semantic_annotations()
-      )
+    self.observation_space = self.make_observation_space()
+
+  @property
+  def dataset(self) -> habitat.Dataset:
+    return self._env._dataset
+
+  @property
+  def sim(self) -> habitat.Simulator:
+    return self._env.sim
 
   def step(self, action):
     obs = self._env.step(action)
+    # augmenting compass with agent's pitch
+    if action == HabitatSimActions.LOOK_UP:
+      self._agent_tilt_angle += self.tilt_angle
+    elif action == HabitatSimActions.LOOK_DOWN:
+      self._agent_tilt_angle -= self.tilt_angle
+    obs = self.get_observations(obs)
+    # get done, rew, info, ...
     done = self.get_done(obs)
     info = self.get_info(obs)
     rew = self.get_reward(obs, done, info)
-    self._cached_obs = obs
     return obs, rew, done, info
 
   def reset(self):
     obs = self._env.reset()
-    if self.semap.has_semantics:
-      self.semap.parse_semantics(
-        self._env.sim.semantic_annotations(),
-        reset = True
-      )
+    self._agent_tilt_angle = 0
+    obs = self.get_observations(obs)
+    return obs
+
+  def make_observation_space(self):
+    # augmenting compass
+    # compass [heading, pitch]
+    obs_space = self._env.observation_space
+    compass_space = obs_space['compass']
+    new_compass_space = gym.spaces.Box(
+      high = compass_space.high.max(),
+      low = compass_space.low.min(),
+      shape = (2,),
+      dtype = compass_space.dtype
+    )
+    new_obs_spaces = {key: obs_space[key] for key in obs_space}
+    new_obs_spaces['compass'] = new_compass_space
+    new_obs_space = gym.spaces.Dict(new_obs_spaces)
+    return new_obs_space
+
+  def get_observations(self, obs):
+    # compass: [heading, pitch]
+    compass = obs['compass']
+    pitch = np.radians(self._agent_tilt_angle)
+    obs['compass'] = np.concatenate((compass, [pitch]), axis=0)
     self._cached_obs = obs
     return obs
 
@@ -90,27 +118,16 @@ class TrainEnv(habitat.RLEnv):
         _type_: _description_
     """
     metrics = self._env.get_metrics()
-    info = {
-      'metrics': metrics,
-      'goal': {
-        'id': self.semap.get_goal_category_id(obs['objectgoal']),
-        'name': self.semap.get_goal_category_name(obs['objectgoal'])
-      }
-    }
-    return info
+    return {'metrics': metrics}
 
   def render(self, mode="human"):
     if self._cached_obs is None:
       return
-
-    if mode == 'rgb_array':
-      scene = self.render_scene()
-      return scene
     scene = self.render_scene()
-    cv2.imshow("rgb+depth", scene)
-    if mode == 'interact':
-      seg = self.render_interact()
-      cv2.imshow("semantic", seg)
+    if mode == 'rgb_array':
+      return scene
+    else:
+      cv2.imshow("rgb + depth", scene)
 
   def render_scene(self):
     assert self._cached_obs is not None
@@ -122,33 +139,12 @@ class TrainEnv(habitat.RLEnv):
     scene = np.concatenate((bgr, depth), axis=1)
     return scene
 
-  def render_interact(self):
-    assert self.semap.has_semantics
-    assert self._cached_obs is not None
-    obs = self._cached_obs
-    if 'semantic' not in obs:
-      print("semantic observation does not exist")
-      return
-    if not self.setup_interact:
-      cv2.namedWindow('semantic')
-      cv2.setMouseCallback('semantic', self.on_click_semantic_info)
-      self.setup_interact = True
-    seg = self.semap.get_categorical_map(obs['semantic'], bgr=True)
-    return seg
-
-  def on_click_semantic_info(self, event, x, y, flags, param):
-    obs = self._cached_obs
-    if event == cv2.EVENT_LBUTTONDBLCLK:
-      semantic = obs['semantic']
-      if semantic is None or self.semap is None:
-        return
-      obj_id = semantic[y][x].item()
-      print(f"On click (x, y) = ({x}, {y})")
-      self.semap.print_object_info(obj_id, verbose=True)
-
 def example():
   config = kemono.get_config(CONFIG_PATH)
-  env = TrainEnv(config, enable_semantics=True)
+  env = TrainEnv(config)
+  env = SemanticWrapper(env, use_ground_truth=True)
+  env = MapBuilderWrapper(env)
+
   print("Environment creation successful")
   while True:
     observations = env.reset()
@@ -157,8 +153,8 @@ def example():
       # --- show observations ---
     print('Observations:')
     print(f'  Object goal: {observations["objectgoal"]}')
-    print(f"  GPS: ({observations['gps'][1]:.5f}, {observations['gps'][0]:.5f}), compass: {observations['compass'][0]:.5f}")
-
+    print(f"  GPS: {observations['gps']}")
+    print(f"  compass: {observations['compass']}")
     env.render("interact")
 
     print("Agent stepping around inside environment.")
@@ -177,6 +173,12 @@ def example():
       elif keystroke == ord(RIGHT_KEY):
         action = HabitatSimActions.TURN_RIGHT
         print("action: RIGHT")
+      elif keystroke == ord(LOOK_UP):
+        action = HabitatSimActions.LOOK_UP
+        print("action: LOOK_UP")
+      elif keystroke == ord(LOOK_DOWN):
+        action = HabitatSimActions.LOOK_DOWN
+        print("action: LOOK_DOWN")
       elif keystroke == ord(FINISH):
         action = HabitatSimActions.STOP
         print("action: FINISH")
@@ -191,7 +193,8 @@ def example():
       count_steps += 1
       # --- show observations ---
       print('Observations:')
-      print(f"  GPS: ({observations['gps'][1]:.5f}, {observations['gps'][0]:.5f}), compass: {observations['compass'][0]:.5f}")
+      print(f"  GPS: {observations['gps']}")
+      print(f"  compass: {observations['compass']}")
       print(f"Rewards: {reward}")
 
       env.render("interact")
