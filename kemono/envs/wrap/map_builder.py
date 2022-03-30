@@ -19,6 +19,7 @@ WALL_COLOR    = hex2bgr('6798D0')
 INVALID_COLOR = hex2bgr('F4F7FA')
 CAMERA_COLOR  = hex2bgr('EC5565')
 ORIGIN_COLOR  = hex2bgr('FFC300')
+GOAL_COLOR    = hex2bgr('F49FBC')
 
 HEIGHT_THRESHOLD = 0.25
 
@@ -65,6 +66,27 @@ def draw_origin(
     [-1, 0., 0.], # left-back vector
     [1., 0., 0.], # right-back vector
   ], dtype=np.float32)
+  pos = topdown_map.get_coords(pos, is_global=True) # (b, 5, 2)
+  pos = dmap.utils.to_numpy(pos)[0] # (5, 2)
+  return draw_diamond(image, pos, color=color, size=size)
+
+def draw_goal(
+  image: np.ndarray,
+  topdown_map: dmap.TopdownMap,
+  position: np.ndarray,
+  color: np.ndarray = GOAL_COLOR,
+  size: int = 4
+):
+  assert len(image.shape) == 3 # (h, w, 3)
+  assert image.dtype == np.uint8
+  assert topdown_map.proj is not None
+  pos = np.array([
+    [0., 0., 0.], # camera position
+    [0., 0., 1.], # forward vector
+    [0., 0., -1], # backward vector
+    [-1, 0., 0.], # left-back vector
+    [1., 0., 0.], # right-back vector
+  ], dtype=np.float32) + position
   pos = topdown_map.get_coords(pos, is_global=True) # (b, 5, 2)
   pos = dmap.utils.to_numpy(pos)[0] # (5, 2)
   return draw_diamond(image, pos, color=color, size=size)
@@ -144,8 +166,8 @@ class MapBuilder():
       map_res = map_res,
       map_width = map_width,
       map_height = map_height,
-      trunc_depth_min = self.min_depth,
-      trunc_depth_max = self.max_depth,
+      trunc_depth_min = self.min_depth * 1.05,
+      trunc_depth_max = self.max_depth * 0.95,
       trunc_height = trunc_height,
       clip_border = 10,
       fill_value = -np.inf,
@@ -192,25 +214,36 @@ class MapBuilder():
     return world_map
 
 class MapBuilderWrapper(gym.Wrapper):
-  def __init__(self, env: habitat.RLEnv):
+  def __init__(
+    self,
+    env: habitat.RLEnv,
+    draw_goals: bool = False
+  ):
     super().__init__(env=env)
     config = env.config
     self.map_builder = MapBuilder(
       config = config
     )
+    self.draw_goals = draw_goals
     self.local_map_key = "local_map"
     self.world_map_key = "world_map"
     self._cached_obs = None
+    self._agent_init_pos = None
+    self._goals = None
 
   def step(self, action):
     obs, rew, done, info = self.env.step(action)
     obs = self.get_observations(obs)
     self._cached_obs = obs
+    print(self._goals[0])
     return obs, rew, done, info
   
   def reset(self):
     obs = self.env.reset()
     self.map_builder.reset()
+    if self.draw_goals:
+      # cache goals
+      self._goals = self.get_goals()
     obs = self.get_observations(obs)
     self._cached_obs = obs
     return obs
@@ -219,9 +252,27 @@ class MapBuilderWrapper(gym.Wrapper):
     # update map builder
     local_map = self.map_builder.step(obs)
     world_map = self.map_builder.world_map
-    obs[self.local_map_key] = draw_map(local_map)
-    obs[self.world_map_key] = draw_map(world_map)
+    local_map_image = draw_map(local_map)
+    world_map_image = draw_map(world_map)
+    if self.draw_goals:
+      for goal in self._goals:
+        local_map_image = draw_goal(local_map_image, local_map, goal)
+        world_map_image = draw_goal(world_map_image, world_map, goal)
+    obs[self.local_map_key] = local_map_image
+    obs[self.world_map_key] = world_map_image
     return obs
+
+  def get_goals(self):
+    init_pos = self.env.habitat_env.current_episode.start_position
+    init_pos = np.asarray(init_pos)
+    init_rot = self.env.habitat_env.current_episode.start_rotation
+    init_rot = np.asarray(init_rot)
+    goals = self.env.habitat_env.current_episode.goals
+    goal_pos = [
+      compute_relative_goals(init_pos, init_rot, goal.position)
+      for goal in goals
+    ]
+    return np.asarray(goal_pos)
 
   def render(self, mode="human"):
     res = self.env.render(mode=mode)
@@ -229,3 +280,15 @@ class MapBuilderWrapper(gym.Wrapper):
       cv2.imshow("local_map", self._cached_obs[self.local_map_key])
       cv2.imshow("world_map", self._cached_obs[self.world_map_key])
     return res
+
+
+def compute_relative_goals(init_pos, init_rot, goal_pos):
+  from habitat.utils.geometry_utils import (
+    quaternion_rotate_vector,
+    quaternion_from_coeff
+  )
+  init_rot = quaternion_from_coeff(init_rot)
+  goal_pos = quaternion_rotate_vector(
+    init_rot.inverse(), goal_pos - init_pos
+  )
+  return np.asarray([goal_pos[0], goal_pos[1], -goal_pos[2]])

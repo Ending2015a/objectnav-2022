@@ -186,6 +186,32 @@ class SemanticMapping():
       return mapping.get_colorized_mpcat40_category_map(id_map, bgr=bgr)
     return id_map
 
+  def colorize_categorical_map(
+    self,
+    cat_id_map: np.ndarray,
+    rgb: bool = False,
+    bgr: bool = False
+  ) -> np.ndarray:
+    """Return a colorized map from mpcat40 category ID map
+    the cat_id_map can be the ground truth id map generated from
+    `self.get_categorical_map` with `rgb`, `bgr` set to False, or
+    from the RedNet prediction (must be mpcat40 label).
+
+    Args:
+      cat_id_map (np.ndarray): mpcat40 categorical map
+      rgb (bool, optional): plot in RGB channel order. Defaults
+        to False.
+      bgr (bool, optional): plot in BGR channel order. Defaults
+        to False.
+
+    Returns:
+        np.ndarray: _description_
+    """
+    # priority: rgb > bgr
+    bgr = not rgb
+    mapping = self.category_mapping
+    return mapping.get_colorized_mpcat40_category_map(cat_id_map, bgr=bgr)
+
   def get(self, object_id: int) -> Optional[SemanticObject]:
     """Get SemanticObject by object ID
 
@@ -289,7 +315,8 @@ class CategoryMapping():
     self.manual_mapping = {
       'kitchen tools': 'kitchen utencil',
       'bedside cabinet': 'cabinet',
-      'shoes on shelf': 'shoes'
+      'shoes on shelf': 'shoes',
+      'tv_monitor': 'tv'
     }
 
   def get_mpcat40cat_by_category_name(

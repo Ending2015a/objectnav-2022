@@ -29,7 +29,7 @@ class TrainEnvSpec():
   id: str = "HabitatTrain-v0"
 
 class TrainEnv(habitat.RLEnv):
-  metadata = {"render_modes": ['rgb_array', 'human', 'interact']}
+  metadata = {"render.modes": ['rgb_array', 'human', 'interact']}
   reward_range = {-float("inf"), float("inf")}
   spec = TrainEnvSpec()
   def __init__(
@@ -139,7 +139,7 @@ class TrainEnv(habitat.RLEnv):
       return
     scene = self.render_scene()
     if mode == 'rgb_array':
-      return scene
+      return scene[...,::-1] # rgb
     else:
       cv2.imshow("rgb + depth", scene)
 

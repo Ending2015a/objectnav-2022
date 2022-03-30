@@ -152,29 +152,3 @@ class FakeSPL(Measure):
         self._start_end_episode_distance, self._agent_episode_distance
       )
     )
-
-# @registry.register_measure
-# class FullTopDownMap(habitat.tasks.nav.TopDownMap):
-#   def __init__(
-#     self, sim: Simulator, config: Config, *args: Any, **kwargs: Any
-#   ):
-#     super().__init__(sim, config, *args, **kwargs)
-  
-#   def _get_uuid(self, *args: Any, **kwargs: Any) -> str:
-#     return "top_down_map"
-  
-#   def update_metrics(self, episode, action, *args: Any, **kwargs: Any):
-#     self._step_count += 1
-#     house_map, map_agent_x, map_agent_y = self.update_map(
-#       self._sim.get_agent_state().position
-#     )
-#     self._metric = {
-#       "map": house_map,
-#       "fog_of_war_mask": self._fog_of_war_mask,
-#       "agent_map_coord": (map_agent_x, map_agent_y),
-#       "agent_angle": self.get_polar_angle(),
-#       "explored_area_size":
-#       "overall_explored_area_size":
-#     }
-    
-#     maps.MAP_INVALID_POINT
