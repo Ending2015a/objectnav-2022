@@ -28,11 +28,12 @@ SEG_GLOB_PATTERN = 'seg/**/*.npy'
 
 registry.register.optim('sgd')(torch.optim.SGD)
 registry.register.optim('adam', default=True)(torch.optim.Adam)
+registry.register.loss('ce', default=True)(nn.CrossEntropyLoss)
+registry.register.loss('focal')(utils.FocalLoss)
 
 def glob_filenames(
   root_path: str,
-  pattern: str,
-  max_length: Optional[int] = None
+  pattern: str
 ) -> List[str]:
   """Find all filenames
   example:
@@ -46,8 +47,6 @@ def glob_filenames(
   Args:
     root_path (str): root path to glob
     pattern (str): globbing pattern
-    max_length (int, optional): number of filenames to grab. Defaults to None.
-      
 
   Returns:
     List[str]: list of globed file paths, relative to `root_path`
@@ -58,8 +57,6 @@ def glob_filenames(
   # convert to relpaths
   relpaths = [os.path.relpath(path, start=root_path) for path in abspaths]
   relpaths = sorted(relpaths)
-  if max_length is not None:
-    return relpaths[:max_length]
   return relpaths
 
 class HabitatDataset(Dataset):
@@ -71,18 +68,26 @@ class HabitatDataset(Dataset):
     valid_ids: List[int] = utils.mpcat40_meaningful_ids,
     assert_num_classes: Optional[int] = 40,
     multi_scale_seg: List[int] = None,
-    max_length: Optional[int] = None
+    max_length: Optional[int] = None,
+    shuffle: bool = False,
   ):
     self.root_path = root_path
     self.img_size = img_size
     self.void_ids = void_ids
     self.valid_ids = valid_ids
     self.multi_scale_seg = multi_scale_seg
-    self.rgb_list = glob_filenames(root_path, RGB_GLOB_PATTERN, max_length)
-    self.depth_list = glob_filenames(root_path, DEPTH_GLOB_PATTERN, max_length)
-    self.seg_list = glob_filenames(root_path, SEG_GLOB_PATTERN, max_length)
+    self.max_length = max_length
+    self.shuffle = shuffle
+    self.rgb_list = glob_filenames(root_path, RGB_GLOB_PATTERN)
+    self.depth_list = glob_filenames(root_path, DEPTH_GLOB_PATTERN)
+    self.seg_list = glob_filenames(root_path, SEG_GLOB_PATTERN)
     assert len(self.rgb_list) == len(self.depth_list)
     assert len(self.rgb_list) == len(self.seg_list)
+    self.id_list = np.arange(len(self.rgb_list))
+    if shuffle:
+      np.random.shuffle(self.id_list)
+    if max_length is not None:
+      self.id_list = self.id_list[:max_length]
     # meaningful class index start from 1
     self.class_map = dict(zip(valid_ids, range(1, 1+len(valid_ids))))
     # void class set to 0
@@ -94,24 +99,26 @@ class HabitatDataset(Dataset):
         f"got {self.num_classes}, expect {assert_num_classes}"
 
   def __len__(self):
-    return len(self.rgb_list)
+    return len(self.id_list)
 
   @torch.no_grad()
   def __getitem__(self, idx):
-    rgb = self._get_rgb(idx)
-    depth = self._get_depth(idx)
-    seg = self._get_seg(idx)
+    sample_id = self.id_list[idx]
+    rgb = self._get_rgb(sample_id)
+    depth = self._get_depth(sample_id)
+    seg = self._get_seg(sample_id)
     return rgb, depth, seg
 
   def get_rgb_path(self, idx):
-    return self.rgb_list[idx]
+    sample_id = self.id_list[idx]
+    return self.rgb_list[sample_id]
   
   def get_root_path(self):
     return self.root_path
 
-  def _get_rgb(self, idx):
+  def _get_rgb(self, sample_id):
     # return (c, h, w), torch.float32
-    rgb_path = os.path.join(self.root_path, self.rgb_list[idx])
+    rgb_path = os.path.join(self.root_path, self.rgb_list[sample_id])
     # load data
     rgb = cv2.imread(rgb_path)[...,::-1] # (h, w, c), bgr->rgb
     rgb = rgb.astype(np.float32) / 255.
@@ -125,9 +132,9 @@ class HabitatDataset(Dataset):
     )
     return rlchemy.utils.to_numpy(rgb)
 
-  def _get_depth(self, idx):
+  def _get_depth(self, sample_id):
     # return (1, h, w), torch.float32
-    depth_path = os.path.join(self.root_path, self.depth_list[idx])
+    depth_path = os.path.join(self.root_path, self.depth_list[sample_id])
     # (h, w), np.uint16 -> (1, h, w), torch.float32
     depth = cv2.imread(depth_path, -1) # (h, w), torch.uint16
     depth = depth.astype(np.float32) / 65535.
@@ -140,9 +147,9 @@ class HabitatDataset(Dataset):
     depth = utils.resize_tensor(depth, self.img_size, 'nearest')
     return rlchemy.utils.to_numpy(depth)
 
-  def _get_seg(self, idx):
+  def _get_seg(self, sample_id):
     # return (h, w), torch.int64
-    seg_path = os.path.join(self.root_path, self.seg_list[idx])
+    seg_path = os.path.join(self.root_path, self.seg_list[sample_id])
     # (h, w), np.int32 -> torch.int64
     seg = np.load(seg_path)
     seg = torch.from_numpy(seg)
@@ -208,13 +215,12 @@ class Preprocess(nn.Module):
     # ready for forwarding into semantic models
     return rgb, depth
 
-
-
 class SemanticTask(pl.LightningModule):
   def __init__(
     self,
     config: Union[dict, omegaconf.Container],
-    inference_only: bool = False
+    inference_only: bool = False,
+    track_iou_index: List[int] = [3, 10, 11, 14, 18, 22]
   ):
     super().__init__()
     config = OmegaConf.create(config)
@@ -223,10 +229,13 @@ class SemanticTask(pl.LightningModule):
     # ---
     self.config = config
     self.inference_only = inference_only
+    self.track_iou_index = track_iou_index
     self.preprocess = None
     self.model = None
+    self.weighted_cross_entropy = None
     self.setup_model()
     if not self.inference_only:
+      self.setup_loss()
       self.setup_dataset()
 
   def setup_model(self):
@@ -234,6 +243,10 @@ class SemanticTask(pl.LightningModule):
     self.preprocess = Preprocess(**self.config.preprocess)
     model_class = registry.get.semantic(self.config.model_name)
     self.model = model_class(**self.config.model)
+
+  def setup_loss(self):
+    loss_class = registry.get.loss(self.config.loss_name)
+    self.segmentation_loss = loss_class(**self.config.loss)
 
   def setup_dataset(self):
     """Setup datasets (non-inference mode)"""
@@ -301,12 +314,12 @@ class SemanticTask(pl.LightningModule):
       losses = []
       # compute losses for multi-scale segmentations
       for index, (out, seg) in enumerate(zip(outs, segs)):
-        loss = nn.functional.cross_entropy(out, seg)
+        loss = self.segmentation_loss(out, seg)
         losses.append(loss)
         log_dict[f'train/loss_{index}'] = loss
       total_loss = sum(losses)
     else:
-      loss = nn.functional.cross_entropy(outs, segs)
+      loss = self.segmentation_loss(outs, segs)
       total_loss = loss
     # log on every step and epoch
     self.log(
@@ -330,18 +343,33 @@ class SemanticTask(pl.LightningModule):
     # in validation step, the self.training is set to False
     # (eval mode)
     rgb, depth, seg = batch
-    rgb = rgb.to(dtype=torch.float32)
-    depth = depth.to(dtype=torch.float32)
-    out = self(rgb, depth) # only one outputs
-    loss = nn.functional.cross_entropy(out, seg)
+    with torch.no_grad():
+      rgb = rgb.to(dtype=torch.float32)
+      depth = depth.to(dtype=torch.float32)
+      out = self(rgb, depth) # only one outputs
+      loss = self.segmentation_loss(out, seg)
     out = torch.argmax(out, dim=1)
-    miou = utils.mIoU(out, seg, num_classes=self.config.num_classes)
-    self.log(
-      "validation/val_loss",
-      loss,
+    log_dict = {
+      "validation/val_loss": loss
+    }
+    track_iou = []
+    for index in self.track_iou_index:
+      iou = utils.classIoU(out, seg, index)
+      track_iou.append(iou)
+      log_dict[f"validation/IoU_{index}"] = utils.none_for_nan(iou)
+    self.log_dict(
+      log_dict,
       on_epoch = True,
       sync_dist = True
     )
+    self.log(
+      "validation/track_mIoU",
+      utils.none_for_nan(np.nanmean(track_iou)),
+      on_epoch = True,
+      sync_dist = True
+    )
+    # log main score
+    miou = utils.mIoU(out, seg, self.config.num_classes)
     self.log(
       "validation/mIoU",
       miou,

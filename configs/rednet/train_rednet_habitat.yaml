@@ -1,5 +1,5 @@
 global:
-  root_path: "/src/logs/rednet_dataset/{}/dataset/"
+  data_path: "/src/logs/rednet_dataset/{}/dataset/"
   img_size: [480, 640]
   num_classes: 40
 
@@ -41,20 +41,23 @@ task:
     weight_decay: 1.0e-4
   batch_size: 1
   num_workers: 1
+  loss_name: 'focal'
+  loss: {}
 
   # datasets
   trainset:
-    root_path: "${format: ${global.root_path}, train}"
+    root_path: "${format: ${global.data_path}, train}"
     img_size: "${global.img_size}"
-    assert_num_classes: 40
+    assert_num_classes: ${global.num_classes}
     multi_scale_seg: [2, 4, 8, 16]
-    max_length: 100
   valset:
-    root_path: "${format: ${global.root_path}, val}"
+    root_path: "${format: ${global.data_path}, val}"
     img_size: "${global.img_size}"
-    max_length: 100
+    assert_num_classes: ${global.num_classes}
   predset:
-    root_path: "${format: ${global.root_path}, val_mini}"
+    root_path: "${format: ${global.data_path}, val}"
     img_size: "${global.img_size}"
+    assert_num_classes: ${global.num_classes}
     max_length: 100
+    shuffle: True
 
