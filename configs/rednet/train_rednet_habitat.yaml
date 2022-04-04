@@ -1,0 +1,60 @@
+global:
+  root_path: "/src/logs/rednet_dataset/{}/dataset/"
+  img_size: [480, 640]
+  num_classes: 40
+
+trainer:
+  max_epochs: 100
+  accelerator: 'gpu'
+  devices: 1
+  default_root_dir: /src/logs/rednet/
+  check_val_every_n_epoch: 1
+  sync_batchnorm: False
+
+checkpoint:
+  every_n_epochs: 1
+  save_top_k: 5
+  mode: max
+  verbose: True
+  save_last: True
+
+task:
+  # main model
+  num_classes: "${global.num_classes}"
+  model_name: rednet
+  model:
+    num_classes: "${global.num_classes}"
+    pretrained: True
+  preprocess:
+    rgb_norm:
+      mean: [0.493, 0.468, 0.438]
+      std: [0.544, 0.521, 0.499]
+    depth_norm:
+      mean: 0.213
+      std: 0.285
+    img_size: "${global.img_size}"
+  # training params
+  optimizer_name: 'sgd'
+  optimizer:
+    lr: 2.0e-3
+    momentum: 0.9
+    weight_decay: 1.0e-4
+  batch_size: 1
+  num_workers: 1
+
+  # datasets
+  trainset:
+    root_path: "${format: ${global.root_path}, train}"
+    img_size: "${global.img_size}"
+    assert_num_classes: 40
+    multi_scale_seg: [2, 4, 8, 16]
+    max_length: 100
+  valset:
+    root_path: "${format: ${global.root_path}, val}"
+    img_size: "${global.img_size}"
+    max_length: 100
+  predset:
+    root_path: "${format: ${global.root_path}, val_mini}"
+    img_size: "${global.img_size}"
+    max_length: 100
+

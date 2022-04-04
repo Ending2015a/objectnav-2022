@@ -38,6 +38,8 @@ class _RedNetSemanticPredictor():
   pass
 
 class SemanticWrapper(gym.Wrapper):
+  seg_key = 'seg'
+  seg_color_key = 'seg_color'
   def __init__(
     self,
     env: habitat.RLEnv,
@@ -98,22 +100,25 @@ class SemanticWrapper(gym.Wrapper):
     width = self.config.SIMULATOR.SEMANTIC_SENSOR.WIDTH
     height = self.config.SIMULATOR.SEMANTIC_SENSOR.HEIGHT
     obs_space = self.observation_space
+    new_obs_spaces = {key: obs_space[key] for key in obs_space}
+    # raw semantic id spaces (category ids)
+    seg_space = gym.spaces.Box(
+      low = 0,
+      high = 41,
+      shape = (height, width),
+      dtype = np.int32
+    )
+    new_obs_spaces[self.seg_key] = seg_space
+    # colorized semantic spaces (RGB image)
     if self.colorized:
-      seg_space = gym.spaces.Box(
+      seg_color_space = gym.spaces.Box(
         low = 0,
         high = 255,
         shape = (height, width, 3),
-        dtype = np.uint32
+        dtype = np.uint8
       )
-    else:
-      seg_space = gym.spaces.Box(
-        low = 0,
-        high = 41,
-        shape = (height, width),
-        dtype = np.uint32
-      )
-    new_obs_spaces = {key: obs_space[key] for key in obs_space}
-    new_obs_spaces['seg'] = seg_space
+      new_obs_spaces[self.seg_color_key] = seg_color_space
+    # create new Dict spaces
     new_obs_space = gym.spaces.Dict(new_obs_spaces)
     return new_obs_space
 
@@ -122,10 +127,11 @@ class SemanticWrapper(gym.Wrapper):
       return obs
     # predict category id map
     seg = self.predictor.predict(obs)
+    obs[self.seg_key] = seg
     # colorize segmentation map
     if self.colorized:
-      seg = self.semap.colorize_categorical_map(seg, rgb=True)
-    obs['seg'] = seg
+      seg_color = self.semap.colorize_categorical_map(seg, rgb=True)
+      obs[self.seg_color_key] = seg_color
     self._cached_obs = obs
     return obs
   
@@ -139,22 +145,28 @@ class SemanticWrapper(gym.Wrapper):
   def render(self, mode='human'):
     res = self.env.render(mode=mode)
     if (self._cached_obs is None
-        or 'seg' not in self._cached_obs):
+        or self.seg_key not in self._cached_obs):
       return res
-    # colorize segmentation map
-    seg = self._cached_obs['seg']
+    # if the colorized flag is not set
+    # seg_color (RGB image) does not contain in the observation dict
+    # hense we have to colorize from the raw seg map (ID map)
+    # otherwise, we can directly use the seg_color in the observation dict
     if not self.colorized:
-      seg = self.semap.colorize_categorical_map(seg, rgb=True)
+      seg = self._cached_obs[self.seg_key]
+      seg_color = self.semap.colorize_categorical_map(seg, rgb=True)
+    else:
+      seg_color = self._cached_obs[self.seg_color_key]
     # make scene
     if mode == 'rgb_array':
-      return np.concatenate((res, seg), axis=1)
+      # return concatenated RGB image
+      return np.concatenate((res, seg_color), axis=1)
     elif mode == 'human':
       window_name = 'semantic'
-      cv2.imshow(window_name, seg[...,::-1])
+      cv2.imshow(window_name, seg_color[...,::-1])
     elif mode == 'interact':
       window_name = "semantic (interact)"
       self.setup_interact(window_name)
-      cv2.imshow(window_name, seg[...,::-1])
+      cv2.imshow(window_name, seg_color[...,::-1])
     return res
 
   def setup_interact(self, window_name):
@@ -166,7 +178,7 @@ class SemanticWrapper(gym.Wrapper):
 
   def on_dubclick_probe_info(self, event, x, y, flags, param):
     semantic = self._cached_obs.get('semantic', None)
-    if event == cv2.EVENT_LBUTTONDBLCLK:
+    if event == cv2.EVENT_LBUTTONDOWN:
       if semantic is None:
         return
       obj_id = semantic[y][x].item()

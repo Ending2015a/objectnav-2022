@@ -1,4 +1,5 @@
 # --- built in ---
+import re
 from typing import Dict, Optional, Union, TypeVar
 # --- 3rd party ---
 import numpy as np
@@ -312,18 +313,15 @@ class CategoryMapping():
     """
     self.default_category = default_category
     # HM3D category name to MP3D raw category name
-    self.manual_mapping = {
-      'kitchen tools': 'kitchen utencil',
-      'bedside cabinet': 'cabinet',
-      'shoes on shelf': 'shoes',
-      'tv_monitor': 'tv'
-    }
+    self.manual_mapping = utils.hm3d_manual_map
 
   def get_mpcat40cat_by_category_name(
     self,
     category_name: str
   ):
-    category_name = category_name.lower()
+    category_name = category_name.lower().strip()
+    # replace multi spaces with single space
+    category_name = re.sub('\s+', ' ', category_name)
     # map category name by user defined mappings
     if category_name in self.manual_mapping.keys():
       category_name = self.manual_mapping[category_name]

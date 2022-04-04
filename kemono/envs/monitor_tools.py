@@ -23,6 +23,12 @@ class RedNetDatasetCollectTool(MonitorToolChain):
   image_ext: str = 'png'
   semantic_ext: str = 'npy'
   dataset_suffix: str = '{episode_steps:03d}'
+  # observation keys
+  rgb_key: str = 'rgb'
+  depth_key: str = 'depth'
+  seg_key: str = 'seg'
+  seg_color_key: str = 'seg_color'
+
   def __init__(
     self,
     root_dir: Optional[str] = None,
@@ -124,12 +130,14 @@ class RedNetDatasetCollectTool(MonitorToolChain):
     }
 
   def _save_data(self, obs):
-    if 'rgb' in obs:
-      rgb_path = self._save_rgb_data(obs['rgb'])
-    if 'depth' in obs:
-      depth_path = self._save_depth_data(obs['depth'])
-    if 'seg' in obs:
-      seg_path = self._save_semantic_data(obs['seg'])
+    if self.rgb_key in obs:
+      rgb_path = self._save_rgb_data(obs[self.rgb_key])
+    if self.depth_key in obs:
+      depth_path = self._save_depth_data(obs[self.depth_key])
+    if self.seg_key in obs:
+      seg_path = self._save_semantic_data(obs[self.seg_key])
+    if self.seg_color_key in obs:
+      seg_color_path = self._save_semantic_color_data(obs[self.seg_color_key])
 
   def _save_rgb_data(self, rgb):
     path = self._make_path(
@@ -138,13 +146,13 @@ class RedNetDatasetCollectTool(MonitorToolChain):
       suffix = self._suffix,
       ext = self._image_ext,
       macro_dict = dict(
-        feature = 'rgb',
+        feature = self.rgb_key,
         episode_steps = self._episodic_steps
       )
     )
     self._create_path(filepath=path)
     # to bgr
-    bgr = rgb[...,::-1]
+    bgr = rgb[...,::-1].astype(np.uint8)
     cv2.imwrite(path, bgr)
     return path
 
@@ -155,7 +163,7 @@ class RedNetDatasetCollectTool(MonitorToolChain):
       suffix = self._suffix,
       ext = self._image_ext,
       macro_dict = dict(
-        feature = 'depth',
+        feature = self.depth_key,
         episode_steps = self._episodic_steps
       )
     )
@@ -177,13 +185,30 @@ class RedNetDatasetCollectTool(MonitorToolChain):
       suffix = self._suffix,
       ext = self._semantic_ext,
       macro_dict = dict(
-        feature = 'seg',
+        feature = self.seg_key,
         episode_steps = self._episodic_steps
       )
     )
     self._create_path(filepath=path)
     # to npy
-    np.save(path, seg)
+    np.save(path, seg.astype(np.int32))
+    return path
+
+  def _save_semantic_color_data(self, seg_color):
+    path = self._make_path(
+      root_dir = self._root_dir,
+      prefix = self._prefix,
+      suffix = self._suffix,
+      ext = self._image_ext,
+      macro_dict = dict(
+        feature = self.seg_color_key,
+        episode_steps = self._episodic_steps
+      )
+    )
+    self._create_path(filepath=path)
+    # to bgr
+    seg_color = seg_color[...,::-1].astype(np.uint8)
+    cv2.imwrite(path, seg_color)
     return path
   
   def _make_path(

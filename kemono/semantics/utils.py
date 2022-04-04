@@ -1,10 +1,13 @@
 # --- bulit in ---
 import os
-from typing import Dict
+from typing import Dict, List, Union, Tuple
 import dataclasses
 # --- 3rd party ---
 import numpy as np
 import pandas as pd
+import torch
+from torch import nn
+import dungeon_maps as dmap
 # --- my module ---
 
 __all__ = [
@@ -13,7 +16,13 @@ __all__ = [
   'mpcat40categories',
   'hm3dcategories',
   'mp3d_category_map',
-  'mpcat40_color_map_rgb'
+  'hm3d_manual_map',
+  'mpcat40_color_map_rgb',
+  'mpcat40_meaningful_ids',
+  'mpcat40_trivial_ids',
+  'Normalize',
+  'resize_tensor',
+  'mIoU'
 ]
 
 # === Loading mp3d hm3d semantic labels ===
@@ -21,8 +30,16 @@ LIB_PATH = os.path.dirname(os.path.abspath(__file__))
 # See https://github.com/niessner/Matterport/blob/master/metadata/mpcat40.tsv
 MPCAT40_PATH = os.path.join(LIB_PATH, 'mpcat40.tsv')
 CATEGORY_MAPPING_PATH = os.path.join(LIB_PATH, 'category_mapping.tsv')
+HM3D_MANUAL_MAPPING_PATH = os.path.join(LIB_PATH, 'manual_mapping.csv')
 MPCAT40_DF = pd.read_csv(MPCAT40_PATH, sep='\t')
 CATEGORY_MAPPING_DF = pd.read_csv(CATEGORY_MAPPING_PATH, sep='\t')
+HM3D_MANUAL_MAPPING_DF = pd.read_csv(HM3D_MANUAL_MAPPING_PATH)
+
+MPCAT40_TRIVIAL_LABELS = [
+  'void',
+  'misc',
+  'unlabeled'
+]
 
 def dataclass_factory(df, name):
   _class = dataclasses.make_dataclass(
@@ -68,7 +85,7 @@ def get_mp3d_category_map() -> Dict[str, MPCat40Category]:
 
 mp3d_category_map = get_mp3d_category_map()
 
-def get_mpcat40_color_map(bgr=False) -> np.ndarray:
+def get_mpcat40_color_map(bgr: bool=False) -> np.ndarray:
   colors = [
     hex2rgb(mpcat40cat.hex) if not bgr else hex2bgr(mpcat40cat.hex)
     for mpcat40cat in mpcat40categories
@@ -77,3 +94,120 @@ def get_mpcat40_color_map(bgr=False) -> np.ndarray:
   return colors
 
 mpcat40_color_map_rgb = get_mpcat40_color_map(bgr=False)
+
+def get_hm3d_manual_mapping() -> Dict[str, str]:
+  hm3d_map = HM3D_MANUAL_MAPPING_DF.to_dict()
+  sources = hm3d_map['source'].values()
+  targets = hm3d_map['target'].values()
+  hm3d_map = {}
+  for src, tar in zip(sources, targets):
+    hm3d_map[src.strip()] = tar.strip()
+  return hm3d_map
+
+hm3d_manual_map = get_hm3d_manual_mapping()
+
+def get_mpcat40_label_lists(
+  trivial_lists: List[str] = MPCAT40_TRIVIAL_LABELS
+):
+  meaningful_ids = []
+  trivial_ids = []
+  for idx, cat in enumerate(mpcat40categories):
+    if cat.mpcat40 in trivial_lists:
+      trivial_ids.append(idx)
+    else:
+      meaningful_ids.append(idx)
+  return meaningful_ids, trivial_ids
+
+mpcat40_meaningful_ids, mpcat40_trivial_ids = get_mpcat40_label_lists()
+# totally we have 40 classes: 39 meaningful classes + 1 trivial class
+
+
+def to_4D_tensor(t: torch.Tensor) -> torch.Tensor:
+  t = dmap.utils.to_tensor(t)
+  if len(t.shape) == 0:
+    # () -> (b, c, h, w)
+    t = torch.broadcast_to(t, (1,1,1,1))
+  elif len(t.shape) == 1:
+    # (c,) -> (b, c, h, w)
+    t = t[None, :, None, None]
+  elif len(t.shape) == 2:
+    # (h, w) -> (b, c, h, w)
+    t = t[None, None, :, :]
+  elif len(t.shape) == 3:
+    # (c, h, w) -> (b, c, h, w)
+    t = t[None, :, :, :]
+  return t
+
+# === Tools ===
+class Normalize(nn.Module):
+  def __init__(
+    self,
+    mean: Union[np.ndarray, torch.Tensor],
+    std: Union[np.ndarray, torch.Tensor],
+  ):
+    super().__init__()
+    mean = to_4D_tensor(mean)
+    std = to_4D_tensor(std)
+    self.register_buffer('mean', mean, persistent=False)
+    self.register_buffer('std', std, persistent=False)
+
+  def forward(self, x):
+    return (x - self.mean) / self.std
+
+def resize_tensor(
+  tensor_image: Union[np.ndarray, torch.Tensor],
+  size: Tuple[int, int],
+  mode: str = 'nearest',
+  **kwargs
+) -> torch.Tensor:
+  """Resize image tensor
+
+  Args:
+      tensor_image (Union[np.ndarray, torch.Tensor]): expecting
+        (h, w), (c, h, w), (b, c, h, w)
+      size (Tuple[int, int]): target size in (h, w)
+      mode (str, optional): resize mode. Defaults to 'nearest'.
+  """
+  t = dmap.utils.to_tensor(tensor_image)
+  orig_shape = t.shape
+  orig_dtype = t.dtype
+  orig_ndims = len(orig_shape)
+  t = dmap.utils.to_4D_image(t) # (b, c, h, w)
+  t = t.to(dtype=torch.float32)
+  t = nn.functional.interpolate(t, size=tuple(size), mode=mode, **kwargs)
+  t = dmap.utils.from_4D_image(t, orig_ndims)
+  return t.to(dtype=orig_dtype)
+
+@torch.no_grad()
+def mIoU(
+  seg_pred: torch.Tensor,
+  seg_gt: torch.Tensor,
+  eps: float = 1e-8,
+  num_classes: int = 40
+) -> float:
+  """calculate mIoU
+
+  Args:
+    seg_pred (torch.Tensor): predicted category indices
+    seg_gt (torch.Tensor): ground truth category indices
+    eps (float, optional): epsilon. Defaults to 1e-8.
+    num_classes (int, optional): number of classes. Defaults to 40.
+
+  Returns:
+    float: mIoU
+  """  
+  # flatten tensors
+  iou_per_class = []
+  for idx in range(num_classes):
+    true_class = seg_pred == idx
+    true_label = seg_gt == idx
+    if true_label.long().sum().item() == 0:
+      iou_per_class.append(np.nan)
+    else:
+      intersect = torch.logical_and(true_class, true_label)
+      union = torch.logical_or(true_class, true_label)
+      intersect = intersect.sum().float().item()
+      union = union.sum().float().item()
+      iou = (intersect + eps) / (union + eps)
+      iou_per_class.append(iou)
+  return np.nanmean(iou_per_class)
