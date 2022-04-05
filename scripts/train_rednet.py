@@ -1,4 +1,5 @@
 # --- built in ---
+import time
 import os
 import glob
 from typing import (
@@ -9,6 +10,8 @@ from typing import (
 # --- 3rd party --
 import pytorch_lightning as pl
 from omegaconf import OmegaConf
+import rlchemy
+import torch
 # --- my module --
 from kemono.semantics import SemanticTask
 
@@ -23,6 +26,7 @@ def main(args):
   OmegaConf.resolve(conf)
   # create model & trainer
   model = SemanticTask(conf.task)
+
   checkpoint_callback = pl.callbacks.ModelCheckpoint(
     monitor = "validation/mIoU",
     **conf.checkpoint

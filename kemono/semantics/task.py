@@ -202,8 +202,6 @@ class Preprocess(nn.Module):
     # depth (1, h, w) or (b, 1, h, w), torch.float32
     rgb = utils.to_4D_tensor(rgb)
     depth = utils.to_4D_tensor(depth)
-    if rgb.dtype == torch.uint8:
-      rgb = rgb.to(dtype=torch.float32) / 255.
     rgb = rgb.to(dtype=torch.float32)
     depth = depth.to(dtype=torch.float32)
     if self.img_size is not None:
@@ -316,7 +314,7 @@ class SemanticTask(pl.LightningModule):
       for index, (out, seg) in enumerate(zip(outs, segs)):
         loss = self.segmentation_loss(out, seg)
         losses.append(loss)
-        log_dict[f'train/loss_{index}'] = loss
+        log_dict[f'train/loss_{index}'] = loss.item()
       total_loss = sum(losses)
     else:
       loss = self.segmentation_loss(outs, segs)
@@ -324,7 +322,7 @@ class SemanticTask(pl.LightningModule):
     # log on every step and epoch
     self.log(
       "train/loss",
-      total_loss,
+      total_loss.item(),
       on_step = True,
       on_epoch = True,
       sync_dist = True,
@@ -350,7 +348,7 @@ class SemanticTask(pl.LightningModule):
       loss = self.segmentation_loss(out, seg)
     out = torch.argmax(out, dim=1)
     log_dict = {
-      "validation/val_loss": loss
+      "validation/val_loss": loss.item()
     }
     track_iou = []
     for index in self.track_iou_index:
