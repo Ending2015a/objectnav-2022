@@ -1,10 +1,13 @@
 # --- built in ---
 import enum
+from typing import Any, Dict
 # --- 3rd party ---
 import cv2
 import gym
 import habitat
 import numpy as np
+import rlchemy
+from rlchemy import registry
 # --- my module ---
 from kemono.semantics import SemanticMapping
 
@@ -12,6 +15,7 @@ __all__ = [
   'SemanticWrapper'
 ]
 
+@registry.register.semantic_predictor('gt', default=True)
 class _GTSemanticPredictor():
   def __init__(
     self,
@@ -32,27 +36,23 @@ class _GTSemanticPredictor():
     seg = self.semap.get_categorical_map(obs['semantic'])
     return seg
 
-class _RedNetSemanticPredictor():
-  # TODO: load pretrained rednet model
-  # TODO: predict mpcat40 labels
-  pass
-
 class SemanticWrapper(gym.Wrapper):
   seg_key = 'seg'
   seg_color_key = 'seg_color'
   def __init__(
     self,
     env: habitat.RLEnv,
-    predictor_type: str = 'none',
-    colorized: bool = False
+    predictor_name: str = 'none',
+    colorized: bool = False,
+    predictor_kwargs: Dict[str, Any] = {},
   ):
     """SemanticWrapper used to generate semantic segmentation
     observations
 
     Args:
       env (habitat.RLEnv): habitat environment
-      predictor_type (bool, optional): type of predictor used to predict
-        categorical maps, either ['gt', 'rednet', 'none']
+      predictor_name (bool, optional): type of predictor used to predict
+        categorical maps, either ['gt', 'model', 'none']
       whether to use ground truth
         semantic annotations. Defaults to False.
       colorized (bool, optional): colorize semantic segmentation map.
@@ -61,19 +61,22 @@ class SemanticWrapper(gym.Wrapper):
     super().__init__(env=env)
     self._setup_interact = False
     self._cached_obs = None
-    self.predictor_type = predictor_type.lower()
+    self.predictor_name = predictor_name.lower().strip()
     self.colorized = colorized
     self.semap = SemanticMapping(
       dataset = self.env.dataset
     )
-    if self.predictor_type == 'gt':
+    if self.predictor_name == 'gt':
       self.predictor = _GTSemanticPredictor(
         self.semap, self.env.sim
       )
-    elif self.predictor_type == 'none':
-      self.predictor = None
     else:
-      raise NotImplementedError(f'Unknown predictor: {self.predictor_type}')
+      predictor_class = registry.get.semantic_predictor(self.predictor_name)
+      if predictor_class is None:
+        print(f'Predictor not found... {self.predictor_name}')
+        self.predictor = None
+      else:
+        self.predictor = predictor_class(**predictor_kwargs)
 
     self.observation_space = self.make_observation_space()
   
@@ -170,7 +173,7 @@ class SemanticWrapper(gym.Wrapper):
     return res
 
   def setup_interact(self, window_name):
-    assert self.predictor_type == 'gt'
+    assert self.predictor_name == 'gt'
     if not self._setup_interact:
       cv2.namedWindow(window_name)
       cv2.setMouseCallback(window_name, self.on_dubclick_probe_info)

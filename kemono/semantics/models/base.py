@@ -18,6 +18,7 @@ class BaseSemanticModel(nn.Module):
   def forward(
     self,
     rgb: torch.Tensor,
-    depth: torch.Tensor
+    depth: torch.Tensor,
+    **kwargs
   ) -> torch.Tensor:
     pass

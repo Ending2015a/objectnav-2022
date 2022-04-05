@@ -2,6 +2,8 @@
 import os
 import glob
 from typing import (
+  Any,
+  Dict,
   List,
   Tuple,
   Union,
@@ -28,8 +30,6 @@ SEG_GLOB_PATTERN = 'seg/**/*.npy'
 
 registry.register.optim('sgd')(torch.optim.SGD)
 registry.register.optim('adam', default=True)(torch.optim.Adam)
-registry.register.loss('ce', default=True)(nn.CrossEntropyLoss)
-registry.register.loss('focal')(utils.FocalLoss)
 
 def glob_filenames(
   root_path: str,
@@ -71,6 +71,34 @@ class HabitatDataset(Dataset):
     max_length: Optional[int] = None,
     shuffle: bool = False,
   ):
+    """Habitat dataset loader
+    This loader is expecting the following dataset sturcture
+    root_path: /src/log/rednet_dataset/val/dataset
+    rgb path: {root_path}/rgb/**/*.png
+    depth path: {root_path}/depth/**/*.png
+    seg path: {root_path}/seg/**/*.png
+
+    Note that this dataset sets all void labels to index = 0 and other meaningful
+    labels are labeld sequentially as listed in `valid_ids` from index = 1...n.
+
+    Args:
+      root_path (str): path to dataset root.
+      img_size (tuple, optional): output image size. All samples will be resized to
+        this image size. Defaults to (480, 640).
+      void_ids (List[int], optional): list of void/unlabeled/unknown labels.
+        Defaults to utils.mpcat40_trivial_ids.
+      valid_ids (List[int], optional): list of meaningful labels.
+        Defaults to utils.mpcat40_meaningful_ids.
+      assert_num_classes (Optional[int], optional): ensure the number of categories
+        match to our expectation. Defaults to 40.
+      multi_scale_seg (List[int], optional): the size of samples are devided by
+        this number. This is used to train a multi scale model. For example:
+        image size (480, 640), scale = [2, 4, 8], then the dataset will generates
+        ground truth segmentations in size: [(480, 640), (240, 320), (120, 160),
+        (60, 80)]. Defaults to None.
+      max_length (int, optional): max length of the dataset. Defaults to None.
+      shuffle (bool, optional): shuffle dataset index. Defaults to False.
+    """
     self.root_path = root_path
     self.img_size = img_size
     self.void_ids = void_ids
@@ -98,25 +126,33 @@ class HabitatDataset(Dataset):
         "The actual number of classes does not match, " \
         f"got {self.num_classes}, expect {assert_num_classes}"
 
-  def __len__(self):
+  def __len__(self) -> int:
     return len(self.id_list)
 
   @torch.no_grad()
-  def __getitem__(self, idx):
+  def __getitem__(self, idx: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     sample_id = self.id_list[idx]
     rgb = self._get_rgb(sample_id)
     depth = self._get_depth(sample_id)
     seg = self._get_seg(sample_id)
     return rgb, depth, seg
 
-  def get_rgb_path(self, idx):
+  def get_rgb_path(self, idx: int) -> str:
     sample_id = self.id_list[idx]
     return self.rgb_list[sample_id]
   
-  def get_root_path(self):
+  def get_root_path(self) -> str:
     return self.root_path
 
-  def _get_rgb(self, sample_id):
+  def _get_rgb(self, sample_id: int) -> np.ndarray:
+    """Read rgb data from file
+
+    Args:
+      sample_id (int): sample ID
+
+    Returns:
+      np.ndarray: RGB data in (c, h, w), np.float32
+    """    
     # return (c, h, w), torch.float32
     rgb_path = os.path.join(self.root_path, self.rgb_list[sample_id])
     # load data
@@ -124,7 +160,7 @@ class HabitatDataset(Dataset):
     rgb = rgb.astype(np.float32) / 255.
     rgb = torch.from_numpy(rgb)
     rgb = torch.permute(rgb, (2, 0, 1)) # (c, h, w)
-    rgb = utils.resize_tensor(
+    rgb = utils.resize_image(
       rgb,
       size = self.img_size,
       mode = 'bilinear',
@@ -132,7 +168,15 @@ class HabitatDataset(Dataset):
     )
     return rlchemy.utils.to_numpy(rgb)
 
-  def _get_depth(self, sample_id):
+  def _get_depth(self, sample_id: int) -> np.ndarray:
+    """Read depth data from file
+
+    Args:
+      sample_id (int): sample ID
+
+    Returns:
+      np.ndarray: depth data in (1, h, w), np.float32
+    """
     # return (1, h, w), torch.float32
     depth_path = os.path.join(self.root_path, self.depth_list[sample_id])
     # (h, w), np.uint16 -> (1, h, w), torch.float32
@@ -144,10 +188,22 @@ class HabitatDataset(Dataset):
     else:
       depth = torch.permute(depth, (2, 0, 1)) # (c, h, w)
       depth = depth[:1, :, :] # (1, h, w)
-    depth = utils.resize_tensor(depth, self.img_size, 'nearest')
+    depth = utils.resize_image(depth, self.img_size, 'nearest')
     return rlchemy.utils.to_numpy(depth)
 
-  def _get_seg(self, sample_id):
+  def _get_seg(self, sample_id: int) -> Union[np.ndarray, Tuple[np.ndarray]]:
+    """Read ground truth segmentation data
+
+    Args:
+      sample_id (int): sample ID
+
+    Returns:
+      Union[np.ndarray, Tuple[np.ndarray]]: ground truth segmentation
+        * ground truth segmentation in (h, w), torch.int64
+          if multi_scale_seg is None.
+        * a tuple of ground truth segmentation with different scales,
+          if multi_scale_seg is set.
+    """    
     # return (h, w), torch.int64
     seg_path = os.path.join(self.root_path, self.seg_list[sample_id])
     # (h, w), np.int32 -> torch.int64
@@ -161,7 +217,7 @@ class HabitatDataset(Dataset):
       seg[seg == valid_id] = self.class_map[valid_id]
     seg[seg >= self.num_classes] = self.void_id
     # scaling
-    seg = utils.resize_tensor(seg, self.img_size, 'nearest')
+    seg = utils.resize_image(seg, self.img_size, 'nearest')
     seg = seg.to(dtype=torch.int64)
     if self.multi_scale_seg is not None:
       # 0: original size
@@ -169,7 +225,7 @@ class HabitatDataset(Dataset):
       segs = [seg]
       for scale in self.multi_scale_seg:
         size = (self.img_size[0]//scale, self.img_size[1]//scale)
-        seg = utils.resize_tensor(segs[0], size, 'nearest')
+        seg = utils.resize_image(segs[0], size, 'nearest')
         seg = seg.to(dtype=torch.int64)
         segs.append(seg)
       seg = tuple(segs)
@@ -183,31 +239,55 @@ class Preprocess(nn.Module):
     depth_norm: Optional[dict] = None,
     img_size: Optional[Tuple[int, int]] = None,
   ):
+    """Preprocess layer
+
+    Args:
+      rgb_norm (dict, optional): arguments for RGB normalizer.
+        See kemono.semantic.utils.ImageNormalize. Defaults to None.
+      depth_norm (dict, optional): arguments for depth normalizer.
+        See kemono.semantic.utils.ImageNormalize. Defaults to None.
+      img_size (Tuple[int, int], optional): target image size.
+        Defaults to None.
+    """
     super().__init__()
     if rgb_norm is not None:
-      rgb_norm = utils.Normalize(**rgb_norm)
+      rgb_norm = utils.ImageNormalize(**rgb_norm)
     if depth_norm is not None:
-      depth_norm = utils.Normalize(**depth_norm)
+      depth_norm = utils.ImageNormalize(**depth_norm)
     self.rgb_norm = rgb_norm
     self.depth_norm = depth_norm
     self.img_size = img_size
-  
+
+  @torch.no_grad()
   def forward(
     self,
     rgb: torch.Tensor,
     depth: torch.Tensor
   ) -> Tuple[torch.Tensor, torch.Tensor]:
-    # expecting
-    # rgb (c, h, w) or (b, c, h, w), torch.uint8 or torch.float32
-    # depth (1, h, w) or (b, 1, h, w), torch.float32
-    rgb = utils.to_4D_tensor(rgb)
-    depth = utils.to_4D_tensor(depth)
+    """Forward preprocessing
+    Note that the input must be torch.Tensor
+
+    Args:
+      rgb (torch.Tensor): RGB image, expecting 3/4D image.
+        torch.uint8 or torch.float32
+      depth (torch.Tensor): Depth image, expecting 3/4D image
+        torch.float32
+
+    Returns:
+      Tuple[torch.Tensor, torch.Tensor]: preorpcessed rgb and depth
+    """
+    # normalize uint8 -> float32
+    if rgb.dtype == torch.uint8:
+      rgb = rgb.to(dtype=torch.float32) / 255.
     rgb = rgb.to(dtype=torch.float32)
     depth = depth.to(dtype=torch.float32)
+    # convert to 4D image
+    rgb = utils.to_4D_tensor(rgb)
+    depth = utils.to_4D_tensor(depth)
+    # resize if needed
     if self.img_size is not None:
-      # ensure size == img_size
-      rgb = utils.resize_tensor(rgb, self.img_size, 'bilinear', align_corners=True)
-      depth = utils.resize_tensor(depth, self.img_size, 'nearest')
+      rgb = utils.resize_image(rgb, self.img_size, 'bilinear', align_corners=True)
+      depth = utils.resize_image(depth, self.img_size, 'nearest')
     rgb = self.rgb_norm(rgb)
     depth = self.depth_norm(depth)
     # ready for forwarding into semantic models
@@ -217,9 +297,15 @@ class SemanticTask(pl.LightningModule):
   def __init__(
     self,
     config: Union[dict, omegaconf.Container],
-    inference_only: bool = False,
-    track_iou_index: List[int] = [3, 10, 11, 14, 18, 22]
+    inference_only: bool = False
   ):
+    """Semantic segmentation task wrapper
+
+    Args:
+        config (Union[dict, omegaconf.Container]): configurations.
+        inference_only (bool, optional): inference mode only.
+          Defaults to False.
+    """
     super().__init__()
     config = OmegaConf.create(config)
     OmegaConf.resolve(config)
@@ -227,10 +313,10 @@ class SemanticTask(pl.LightningModule):
     # ---
     self.config = config
     self.inference_only = inference_only
-    self.track_iou_index = track_iou_index
-    self.preprocess = None
+    self.track_iou_index = config.get('track_iou_index', None)
+    self.preprocess: Preprocess = None
     self.model = None
-    self.weighted_cross_entropy = None
+    self.semantic_loss = None
     self.setup_model()
     if not self.inference_only:
       self.setup_loss()
@@ -239,15 +325,16 @@ class SemanticTask(pl.LightningModule):
   def setup_model(self):
     """Setup segmentation model"""
     self.preprocess = Preprocess(**self.config.preprocess)
-    model_class = registry.get.semantic(self.config.model_name)
+    model_class = registry.get.semantic_model(self.config.model_name)
     self.model = model_class(**self.config.model)
 
   def setup_loss(self):
-    loss_class = registry.get.loss(self.config.loss_name)
-    self.segmentation_loss = loss_class(**self.config.loss)
+    """Setup loss module"""
+    loss_class = registry.get.semantic_loss(self.config.loss_name)
+    self.semantic_loss = loss_class(**self.config.loss)
 
   def setup_dataset(self):
-    """Setup datasets (non-inference mode)"""
+    """Setup datasets"""
     self.trainset = HabitatDataset(**self.config.trainset)
     self.valset = HabitatDataset(**self.config.valset)
     self.predset = HabitatDataset(**self.config.predset)
@@ -259,9 +346,11 @@ class SemanticTask(pl.LightningModule):
       **self.config.optimizer
     )
     #sche = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=10)
+    decay_rate = self.config.get('decay_rate', 0.8)
+    decay_epochs = self.config.get('decay_epochs', 100)
     sche = torch.optim.lr_scheduler.LambdaLR(
       optim,
-      lr_lambda = lambda ep: 0.8 ** (ep // 100)
+      lr_lambda = lambda ep: decay_rate ** (ep // decay_epochs)
     )
     return [optim], [sche]
 
@@ -281,43 +370,80 @@ class SemanticTask(pl.LightningModule):
       shuffle = False
     )
   
-  def forward(self, rgb, depth, **model_kwargs):
+  def forward(
+    self,
+    rgb: torch.Tensor,
+    depth: torch.Tensor,
+    **kwargs
+  ) -> torch.Tensor:
+    """Forward model
+
+    Args:
+      rgb (torch.Tensor): expecting 4D image tensor, torch.float32
+      depth (torch.Tensor): expecting 4D image tensor, torch.float32
+
+    Returns:
+      torch.Tensor: predicted class index. (b, h, w), torch.int64
+    """
+    rgb = torch.as_tensor(rgb, device=self.device)
+    depth = torch.as_tensor(depth, device=self.device)
     rgb, depth = self.preprocess(rgb, depth)
-    return self.model(rgb, depth, **model_kwargs)
+    return self.model(rgb, depth, **kwargs)
 
   @torch.no_grad()
-  def predict(self, rgb, depth):
+  def predict(
+    self,
+    rgb: Union[np.ndarray, torch.Tensor],
+    depth: Union[np.ndarray, torch.Tensor],
+    **kwargs
+  ) -> np.ndarray:
+    """Predict one sample or batch of samples
+
+    Args:
+      rgb (Union[np.ndarray, torch.Tensor]): expecting 3/4D image
+        tensor or np.ndarray, type can be uint8 or float32. The uint8
+        image is normalized to float32
+      depth (Union[np.ndarray, torch.Tensor]): expecting 3/4D image
+        tensor or np.ndarray, type must be float32.
+
+    Returns:
+      np.ndarray: predicted class index.
+    """
     orig_shape = rgb.shape
     one_sample = (len(orig_shape) == 3)
-    rgb = rlchemy.utils.to_tensor(rgb, device=self.device)
-    depth = rlchemy.utils.to_tensor(depth, device=self.device)
-    out = self(rgb, depth, training=False)
+    with utils.evaluate(self):
+      out = self(rgb, depth, **kwargs)
     out = torch.argmax(out, dim=1, keepdim=True)
     orig_size = orig_shape[-2:]
-    out = utils.resize_tensor(out, orig_size, 'nearest')
+    out = utils.resize_image(out, orig_size, 'nearest')
     out = out.squeeze(dim=1) # (b, h, w)
     out = rlchemy.utils.to_numpy(out).astype(np.int64)
     if one_sample:
       out = out[0]
     return out
 
-  def training_step(self, batch, batch_idx):
+  def training_step(
+    self,
+    batch: Any,
+    batch_idx: int
+  ) -> torch.Tensor:
+    """Lightning hook"""
     rgb, depth, segs = batch
     rgb = rgb.to(dtype=torch.float32)
     depth = depth.to(dtype=torch.float32)
-    outs = self(rgb, depth)
+    outs = self(rgb, depth, use_checkpoint=self.config.use_checkpoint)
     log_dict = {}
     if self.trainset.multi_scale_seg is not None:
       assert len(outs) == len(segs)
       losses = []
       # compute losses for multi-scale segmentations
       for index, (out, seg) in enumerate(zip(outs, segs)):
-        loss = self.segmentation_loss(out, seg)
+        loss = self.semantic_loss(out, seg)
         losses.append(loss)
         log_dict[f'train/loss_{index}'] = loss.item()
       total_loss = sum(losses)
     else:
-      loss = self.segmentation_loss(outs, segs)
+      loss = self.semantic_loss(outs, segs)
       total_loss = loss
     # log on every step and epoch
     self.log(
@@ -337,35 +463,43 @@ class SemanticTask(pl.LightningModule):
     )
     return total_loss
 
-  def validation_step(self, batch, batch_idx):
+  def validation_step(
+    self,
+    batch: Any,
+    batch_idx: int
+  ) -> torch.Tensor:
+    """Lightning hook"""
     # in validation step, the self.training is set to False
     # (eval mode)
     rgb, depth, seg = batch
-    with torch.no_grad():
+    # compute validation loss
+    with utils.evaluate(self), torch.no_grad():
       rgb = rgb.to(dtype=torch.float32)
       depth = depth.to(dtype=torch.float32)
-      out = self(rgb, depth) # only one outputs
-      loss = self.segmentation_loss(out, seg)
+      out = self(rgb, depth, use_checkpoint=self.config.use_checkpoint)
+      loss = self.semantic_loss(out, seg)
     out = torch.argmax(out, dim=1)
     log_dict = {
       "validation/val_loss": loss.item()
     }
-    track_iou = []
-    for index in self.track_iou_index:
-      iou = utils.classIoU(out, seg, index)
-      track_iou.append(iou)
-      log_dict[f"validation/IoU_{index}"] = utils.none_for_nan(iou)
-    self.log_dict(
-      log_dict,
-      on_epoch = True,
-      sync_dist = True
-    )
-    self.log(
-      "validation/track_mIoU",
-      utils.none_for_nan(np.nanmean(track_iou)),
-      on_epoch = True,
-      sync_dist = True
-    )
+    # compute class IoU
+    if self.track_iou_index is not None:
+      track_iou = []
+      for index in self.track_iou_index:
+        iou = utils.classIoU(out, seg, index)
+        track_iou.append(iou)
+        log_dict[f"validation/IoU_{index}"] = utils.none_for_nan(iou)
+      self.log_dict(
+        log_dict,
+        on_epoch = True,
+        sync_dist = True
+      )
+      self.log(
+        "validation/track_mIoU",
+        utils.none_for_nan(np.nanmean(track_iou)),
+        on_epoch = True,
+        sync_dist = True
+      )
     # log main score
     miou = utils.mIoU(out, seg, self.config.num_classes)
     self.log(
@@ -377,7 +511,8 @@ class SemanticTask(pl.LightningModule):
     )
     return loss
 
-  def _preview_predictions(self, pred_idx):
+  def _preview_predictions(self, pred_idx: int):
+    """Plot one sample and save to disk"""
     rgb, depth, seg_gt = self.predset[pred_idx]
     seg_pred = self.predict(rgb, depth)
     mapping = CategoryMapping()
@@ -410,10 +545,6 @@ class SemanticTask(pl.LightningModule):
   def on_save_checkpoint(self, checkpoint):
     if self.trainer.is_global_zero:
       num_samples = len(self.predset)
-      training = self.training
-      if training:
-        self.eval()
-      for n in range(num_samples):
-        self._preview_predictions(n)
-      if training:
-        self.train()
+      with utils.evaluate(self):
+        for n in range(num_samples):
+          self._preview_predictions(n)

@@ -13,6 +13,7 @@ from typing import (
 import torch
 from torch import nn
 import torch.utils.model_zoo as model_zoo
+from torch.utils.checkpoint import checkpoint
 from rlchemy import registry
 # --- my module ---
 from kemono.semantics.models.base import BaseSemanticModel
@@ -167,7 +168,7 @@ class TransBasicBlock(nn.Module):
     out = self.relu(out)
     return out
 
-@registry.register.semantic('rednet', default=True)
+@registry.register.semantic_model('rednet', default=True)
 class RedNet(BaseSemanticModel):
   def __init__(
     self,
@@ -397,10 +398,14 @@ class RedNet(BaseSemanticModel):
     self,
     rgb: torch.Tensor,
     depth: torch.Tensor,
-    training: bool = True
+    use_checkpoint: bool = False
   ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
-    fuses = self.forward_downsample(rgb, depth)
-    out = self.forward_upsample(*fuses)
-    if self.training and not training:
-      return out[0]
+    if use_checkpoint:
+      rgb.requires_grad_()
+      depth.requires_grad_()
+      fuses = checkpoint(self.forward_downsample, rgb, depth)
+      out = checkpoint(self.forward_upsample, *fuses)
+    else:
+      fuses = self.forward_downsample(rgb, depth)
+      out = self.forward_upsample(*fuses)
     return out

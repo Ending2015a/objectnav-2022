@@ -1,9 +1,10 @@
 from . import models
+from . import loss
+from . import utils
 from .semantic_mapping import (
     SemanticMapping,
     CategoryMapping,
     GoalMapping
 )
-from .utils import *
 from .task import SemanticTask
-
+from .predictor import SemanticPredictor

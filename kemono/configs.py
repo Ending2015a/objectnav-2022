@@ -13,6 +13,7 @@ __all__ = [
     'finetune_config'
 ]
 
+
 _C = habitat_get_config()
 _C.defrost()
 

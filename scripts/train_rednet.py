@@ -10,8 +10,6 @@ from typing import (
 # --- 3rd party --
 import pytorch_lightning as pl
 from omegaconf import OmegaConf
-import rlchemy
-import torch
 # --- my module --
 from kemono.semantics import SemanticTask
 
