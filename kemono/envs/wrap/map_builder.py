@@ -145,7 +145,7 @@ class MapBuilder():
     map_res: float = 0.03,
     map_width: int = 600,
     map_height: int = 600,
-    trunc_height: float = 1.5
+    trunc_height: float = 3.0
   ):
     self.map_res = map_res
     self.map_width = map_width
@@ -168,7 +168,7 @@ class MapBuilder():
       map_height = map_height,
       trunc_depth_min = self.min_depth * 1.05,
       trunc_depth_max = self.max_depth * 0.95,
-      trunc_height = trunc_height,
+      trunc_height_max = trunc_height,
       clip_border = 10,
       fill_value = -np.inf,
       to_global = True,

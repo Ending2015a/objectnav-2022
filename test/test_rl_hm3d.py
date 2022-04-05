@@ -28,7 +28,7 @@ ENV_ID = 'HabitatTrain-v0'
 def example():
   config = kemono.get_config(CONFIG_PATH)
   env = train_env.make(ENV_ID, config, auto_stop=False)
-  env = SemanticWrapper(env, predictor_type='gt')
+  env = SemanticWrapper(env, predictor_name='gt')
   env = MapBuilderWrapper(env, draw_goals=True)
 
   print("Environment creation successful")
