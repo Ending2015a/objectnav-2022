@@ -234,7 +234,11 @@ class FocalLoss(nn.Module):
     reduction = 'mean'
   ):
     super().__init__()
-    self.weight = weight
+    if weight is not None:
+      weight = dmap.utils.to_tensor(weight)
+      self.register_buffer('weight', weight)
+    else:
+      self.weight = None
     self.gamma = gamma
     self.reduction = reduction
   
