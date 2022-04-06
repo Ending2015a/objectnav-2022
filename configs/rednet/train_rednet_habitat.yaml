@@ -65,9 +65,9 @@ task:
       move_x: 0.1
       move_y: 0.1
       rotate: 10    # degree
-      shear_x: 0.2
-      shear_y: 0.2
-  valset:
+      shear_x: 0.1
+      shear_y: 0.1
+  valset
     root_path: "${format: ${global.data_path}, val}"
     assert_num_classes: ${global.num_classes}
     transform:
