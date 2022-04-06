@@ -10,6 +10,7 @@ from typing import (
 # --- 3rd party --
 import pytorch_lightning as pl
 from omegaconf import OmegaConf
+from pytorch_lightning.strategies.ddp import DDPStrategy
 # --- my module --
 from kemono.semantics import SemanticTask
 
@@ -29,8 +30,13 @@ def main(args):
     monitor = "validation/mIoU",
     **conf.checkpoint
   )
+  if 'ddp' in conf:
+    strategy = DDPStrategy(**conf.ddp)
+  else:
+    strategy = None
   trainer = pl.Trainer(
     callbacks = checkpoint_callback,
+    strategy = strategy,
     **conf.trainer
   )
   # start training
