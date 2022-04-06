@@ -6,13 +6,13 @@ global:
 trainer:
   max_epochs: 100
   accelerator: 'gpu'
-  devices: [0, 1, 2]
+  devices: 1
   default_root_dir: /src/logs/rednet/
   check_val_every_n_epoch: 1
-  sync_batchnorm: True
+  #sync_batchnorm: True
 
-ddp:
-  find_unused_parameters: False
+#ddp:
+#  find_unused_parameters: False
 
 checkpoint:
   every_n_epochs: 1
@@ -54,17 +54,29 @@ task:
   # datasets
   trainset:
     root_path: "${format: ${global.data_path}, train}"
-    img_size: "${global.img_size}"
     assert_num_classes: ${global.num_classes}
     multi_scale_seg: [2, 4, 8, 16]
+    transform:
+      img_size: "${global.img_size}"
+      random_rate: 0.5
+      crop_rate: [0.15, 0.15]
+      hflip: True
+      vflip: True
+      move_x: 0.1
+      move_y: 0.1
+      rotate: 10    # degree
+      shear_x: 0.2
+      shear_y: 0.2
   valset:
     root_path: "${format: ${global.data_path}, val}"
-    img_size: "${global.img_size}"
     assert_num_classes: ${global.num_classes}
+    transform:
+      img_size: "${global.img_size}"
   predset:
     root_path: "${format: ${global.data_path}, val}"
-    img_size: "${global.img_size}"
     assert_num_classes: ${global.num_classes}
     max_length: 100
     shuffle: True
+    transform:
+      img_size: ${global.img_size}
 

@@ -9,6 +9,7 @@ from typing import (
   Union,
   Optional
 )
+from dataclasses import dataclass
 # --- 3rd party ---
 import cv2
 import numpy as np
@@ -59,17 +60,47 @@ def glob_filenames(
   relpaths = sorted(relpaths)
   return relpaths
 
+class RandomTransform():
+  def __init__(
+    self,
+    config: Optional[Dict[str, Any]] = None,
+    stateful: bool = True
+  ):
+    self.config_state = utils.RandomTransformState(**config)
+    self.stateful = stateful
+    self._state = None
+    if self.config_state.img_size is not None:
+      self.img_size = self.config_state.img_size
+
+
+  def __call__(self, *args, **kwargs) -> torch.Tensor:
+    state = self.get_state()
+    return state.apply(*args, **kwargs)
+  
+  def step(self):
+    if not self.stateful:
+      return
+    # generate random state
+    self._state = self.config_state.generate_random()
+
+  def get_state(self) -> utils.RandomTransformState:
+    if not self.stateful:
+      return self.config_state.generate_random()
+    else:
+      return self._state
+
+
 class HabitatDataset(Dataset):
   def __init__(
     self,
     root_path: str,
-    img_size: tuple = (480, 640),
     void_ids: List[int] = utils.mpcat40_trivial_ids,
     valid_ids: List[int] = utils.mpcat40_meaningful_ids,
     assert_num_classes: Optional[int] = 40,
     multi_scale_seg: List[int] = None,
     max_length: Optional[int] = None,
     shuffle: bool = False,
+    transform: Optional[Dict[str, Any]] = None
   ):
     """Habitat dataset loader
     This loader is expecting the following dataset sturcture
@@ -100,7 +131,6 @@ class HabitatDataset(Dataset):
       shuffle (bool, optional): shuffle dataset index. Defaults to False.
     """
     self.root_path = root_path
-    self.img_size = img_size
     self.void_ids = void_ids
     self.valid_ids = valid_ids
     self.multi_scale_seg = multi_scale_seg
@@ -125,6 +155,10 @@ class HabitatDataset(Dataset):
       assert self.num_classes == assert_num_classes, \
         "The actual number of classes does not match, " \
         f"got {self.num_classes}, expect {assert_num_classes}"
+    self.transform = None
+    if transform is not None:
+      self.transform = RandomTransform(transform, stateful=True)
+    
 
   def __len__(self) -> int:
     return len(self.id_list)
@@ -132,6 +166,8 @@ class HabitatDataset(Dataset):
   @torch.no_grad()
   def __getitem__(self, idx: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     sample_id = self.id_list[idx]
+    if self.transform is not None:
+      self.transform.step()
     rgb = self._get_rgb(sample_id)
     depth = self._get_depth(sample_id)
     seg = self._get_seg(sample_id)
@@ -160,12 +196,7 @@ class HabitatDataset(Dataset):
     rgb = rgb.astype(np.float32) / 255.
     rgb = torch.from_numpy(rgb)
     rgb = torch.permute(rgb, (2, 0, 1)) # (c, h, w)
-    rgb = utils.resize_image(
-      rgb,
-      size = self.img_size,
-      mode = 'bilinear',
-      align_corners = True
-    )
+    rgb = self.transform(rgb, mode='bilinear')
     return rlchemy.utils.to_numpy(rgb)
 
   def _get_depth(self, sample_id: int) -> np.ndarray:
@@ -188,7 +219,7 @@ class HabitatDataset(Dataset):
     else:
       depth = torch.permute(depth, (2, 0, 1)) # (c, h, w)
       depth = depth[:1, :, :] # (1, h, w)
-    depth = utils.resize_image(depth, self.img_size, 'nearest')
+    depth = self.transform(depth, mode='nearest')
     return rlchemy.utils.to_numpy(depth)
 
   def _get_seg(self, sample_id: int) -> Union[np.ndarray, Tuple[np.ndarray]]:
@@ -217,14 +248,15 @@ class HabitatDataset(Dataset):
       seg[seg == valid_id] = self.class_map[valid_id]
     seg[seg >= self.num_classes] = self.void_id
     # scaling
-    seg = utils.resize_image(seg, self.img_size, 'nearest')
+    seg = self.transform(seg, mode='nearest')
     seg = seg.to(dtype=torch.int64)
     if self.multi_scale_seg is not None:
       # 0: original size
       # n: smaller size
+      img_size = self.transform.img_size
       segs = [seg]
       for scale in self.multi_scale_seg:
-        size = (self.img_size[0]//scale, self.img_size[1]//scale)
+        size = (img_size[0]//scale, img_size[1]//scale)
         seg = utils.resize_image(segs[0], size, 'nearest')
         seg = seg.to(dtype=torch.int64)
         segs.append(seg)
