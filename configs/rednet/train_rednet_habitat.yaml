@@ -6,13 +6,13 @@ global:
 trainer:
   max_epochs: 100
   accelerator: 'gpu'
-  devices: 1
+  devices: [0, 1, 2]
   default_root_dir: /src/logs/rednet/
   check_val_every_n_epoch: 1
-  #sync_batchnorm: True
+  sync_batchnorm: True
 
-#ddp:
-#  find_unused_parameters: False
+ddp:
+  find_unused_parameters: False
 
 checkpoint:
   every_n_epochs: 1
@@ -37,12 +37,13 @@ task:
       std: 0.285
     img_size: "${global.img_size}"
   # training params
-  optimizer_name: 'adam'
+  optimizer_name: 'sdg'
   optimizer:
     lr: 2.0e-3
+    momentum: 0.9
     weight_decay: 1.0e-4
-  decay_epochs: 100
-  decay_rate: 0.8
+  decay_epochs: 20
+  decay_rate: 0.9
   batch_size: 6
   num_workers: 3
   loss_name: 'focal'
@@ -59,6 +60,7 @@ task:
     transform:
       img_size: "${global.img_size}"
       random_rate: 0.5
+      random_k: 2
       crop_rate: [0.15, 0.15]
       hflip: True
       vflip: True
@@ -67,7 +69,7 @@ task:
       rotate: 10    # degree
       shear_x: 0.1
       shear_y: 0.1
-  valset
+  valset:
     root_path: "${format: ${global.data_path}, val}"
     assert_num_classes: ${global.num_classes}
     transform:
