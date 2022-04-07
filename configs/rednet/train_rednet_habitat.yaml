@@ -37,7 +37,7 @@ task:
       std: 0.285
     img_size: "${global.img_size}"
   # training params
-  optimizer_name: 'sdg'
+  optimizer_name: 'sgd'
   optimizer:
     lr: 2.0e-3
     momentum: 0.9
