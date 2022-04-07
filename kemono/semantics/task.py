@@ -378,8 +378,8 @@ class SemanticTask(pl.LightningModule):
       **self.config.optimizer
     )
     #sche = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=10)
-    decay_rate = self.config.get('decay_rate', 0.8)
-    decay_epochs = self.config.get('decay_epochs', 100)
+    decay_rate = self.config.get('decay_rate', 0.9)
+    decay_epochs = self.config.get('decay_epochs', 20)
     sche = torch.optim.lr_scheduler.LambdaLR(
       optim,
       lr_lambda = lambda ep: decay_rate ** (ep // decay_epochs)
