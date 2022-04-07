@@ -228,7 +228,7 @@ class RandomTransformState:
     kwargs = {}
     for opt in opts:
       kwargs[opt.value] = self_dict[opt.value]
-      self._generate_random_value(opt)
+      #self._generate_random_value(opt)
     return RandomTransformState(
       img_size = self.img_size,
       random_rate = self.random_rate,
