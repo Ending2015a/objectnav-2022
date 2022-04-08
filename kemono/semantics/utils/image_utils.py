@@ -161,7 +161,9 @@ def affine_sample(image, value, type: AugmentType):
   theta = theta.unsqueeze(0)
   grid = nn.functional.affine_grid(theta, image.size())
   grid = grid.to(device=image.device)
-  image = nn.functional.grid_sample(image, grid, mode='nearest')
+  image = nn.functional.grid_sample(
+    image, grid, mode='nearest', align_corners=True
+  )
   image = image.to(dtype=orig_dtype)
   return image
 

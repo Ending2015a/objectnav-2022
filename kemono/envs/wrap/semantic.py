@@ -1,6 +1,6 @@
 # --- built in ---
 import enum
-from typing import Any, Dict
+from typing import Any, Dict, List
 # --- 3rd party ---
 import cv2
 import gym

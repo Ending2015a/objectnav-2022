@@ -1,0 +1,20 @@
+semantic_map_builder:
+  local:
+    map_res: 0.03
+    map_width: 300
+    map_height: 300
+    trunc_height: 3.0
+  world:
+    map_res: 0.03
+    map_width: 300
+    map_height: 300
+  
+  walkable_labels: [2, 16]
+  ignore_labels: [0, 17]
+  layer_labels:
+    - [1, 4, 9, 24] # house structure: wall, door, window
+    - [7, 31, 36, 37] # cabinet, shelving, furniture, appliances
+    - [3, 10, 34] # chair, sofa, seating
+    - [5] # table
+    - [18, 23] # toilet, shower, bathtub
+  
