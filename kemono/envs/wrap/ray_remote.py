@@ -49,7 +49,7 @@ class RayRemoteEnv(gym.Env):
     env_fn,
     remote_args: List[Any] = [],
     num_cpus: int = 1,
-    num_gpus: float = 0.5
+    num_gpus: float = 1
   ):
     self.env_fn = env_fn
     self.remote_args = remote_args or []

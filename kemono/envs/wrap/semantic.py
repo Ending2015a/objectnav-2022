@@ -42,6 +42,7 @@ class SemanticWrapper(gym.Wrapper):
   def __init__(
     self,
     env: habitat.RLEnv,
+    goal_mapping: Dict[int, str],
     predictor_name: str = 'none',
     colorized: bool = False,
     predictor_kwargs: Dict[str, Any] = {},
@@ -63,9 +64,7 @@ class SemanticWrapper(gym.Wrapper):
     self._cached_obs = None
     self.predictor_name = predictor_name.lower().strip()
     self.colorized = colorized
-    self.semap = SemanticMapping(
-      dataset = self.env.dataset
-    )
+    self.semap = SemanticMapping(goal_mapping)
     if self.predictor_name == 'gt':
       self.predictor = _GTSemanticPredictor(
         self.semap, self.env.sim

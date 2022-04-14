@@ -19,6 +19,15 @@ from kemono.envs.wrap import (
 CONFIG_PATH = '/src/configs/test/test_hm3d.{split}.rgbd.yaml'
 ENV_ID = 'HabitatTrain-v0'
 
+GOAL_MAPPING = {
+  0: 'chair',
+  1: 'bed',
+  2: 'plant',
+  3: 'toilet',
+  4: 'tv_monitor',
+  5: 'sofa'
+}
+
 # def select_nearest_goal(episode):
 #   init_pos = np.asarray(episode.start_position)
 #   goal_pos = np.asarray([goal.position for goal in episode.goals])
@@ -53,7 +62,12 @@ def example(args):
   config = kemono.get_config(CONFIG_PATH)
   # create environment
   env = train_env.make(ENV_ID, config, auto_stop=False)
-  env = SemanticWrapper(env, predictor_type='gt', colorized=True)
+  env = SemanticWrapper(
+    env,
+    goal_mapping = GOAL_MAPPING,
+    predictor_type = 'gt',
+    colorized = True
+  )
   env = rlchemy.envs.Monitor(
     env,
     root_dir = save_path,

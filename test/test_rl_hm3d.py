@@ -23,7 +23,7 @@ LOOK_UP     = "x"
 LOOK_DOWN   = "z"
 QUIT        = "q"
 
-CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
+CONFIG_PATH = '/src/configs/test/test_hm3d.train.rgbd.yaml'
 OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
 ENV_ID = 'HabitatTrain-v0'
 

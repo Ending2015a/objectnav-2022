@@ -79,6 +79,9 @@ def get_mp3d_category_map() -> Dict[str, MPCat40Category]:
       mpcat40_name_to_category[hm3dcat.mpcat40]
     hm3d_name_to_mpcat40[hm3dcat.raw_category] = \
       mpcat40_name_to_category[hm3dcat.mpcat40]
+  for mpcat40cat in mpcat40categories:
+    hm3d_name_to_mpcat40[mpcat40cat.mpcat40] = \
+      mpcat40_name_to_category[mpcat40cat.mpcat40]
   return hm3d_name_to_mpcat40
 
 mp3d_category_map = get_mp3d_category_map()

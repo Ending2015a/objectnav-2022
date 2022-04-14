@@ -25,6 +25,7 @@ macro:
 envs:
   auto_stop: true
   semantic_wrapper:
+    goal_mapping: ${macro.goal_mapping}
     predictor_name: 'gt'
   semantic_map_builder:
     world_config: # this is used as the base config of map projector

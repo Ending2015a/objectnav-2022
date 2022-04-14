@@ -17,7 +17,7 @@ SemanticAnnotations = TypeVar("SemanticAnnotations")
 class SemanticMapping():
   def __init__(
     self,
-    dataset: habitat.Dataset,
+    goal_mapping: Dict[int, str],
     default_category: str = 'unknown'
   ):
     """SemanticMapping provides an interface for mapping
@@ -36,7 +36,7 @@ class SemanticMapping():
     self._get_mpcat40_category_id_map = None
     # ---
     self.category_mapping = CategoryMapping(default_category=default_category)
-    self.goal_mapping = GoalMapping(dataset=dataset)
+    self.goal_mapping = GoalMapping(goal_mapping)
 
   @property
   def semantics(self) -> SemanticAnnotations:
@@ -278,6 +278,7 @@ class SemanticMapping():
     Returns:
       int: goal ID in mpcat40 labels
     """
+    assert self.goal_mapping is not None
     category_name = self.goal_mapping.get_goal_name(goal)
     return self.category_mapping.get_mpcat40_id_by_category_name(category_name)
 
@@ -367,18 +368,18 @@ class CategoryMapping():
 class GoalMapping():
   def __init__(
     self,
-    dataset: habitat.Dataset,
+    goal_mapping: Dict[int, str],
   ):
-    self.dataset = dataset
+    self.goal_mapping = goal_mapping
     self.name_to_id_mapping: Dict[str, int] = {}
     self.id_to_name_mapping: Dict[int, str] = {}
     # ---
     self.parse_dataset_goals()
 
   def parse_dataset_goals(self):
-    mapping = self.dataset.category_to_scene_annotation_category_id
-    self.name_to_id_mapping = {k:v for k, v in mapping.items()}
-    self.id_to_name_mapping = {v:k for k, v in mapping.items()}
+    mapping = self.goal_mapping
+    self.id_to_name_mapping = {k:v for k, v in mapping.items()}
+    self.name_to_id_mapping = {v:k for k, v in mapping.items()}
 
   def get_goal_name(self, id: int) -> str:
     id = np.asarray(id).item()
