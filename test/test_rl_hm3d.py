@@ -4,13 +4,14 @@ from dataclasses import dataclass
 import cv2
 import gym
 import habitat
+from omegaconf import OmegaConf
 import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 import kemono
 from kemono.envs import train_env
 from kemono.envs.wrap import (
-  MapBuilderWrapper,
+  SemanticMapBuilderWrapper,
   SemanticWrapper
 )
 
@@ -23,13 +24,18 @@ LOOK_DOWN   = "z"
 QUIT        = "q"
 
 CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
+OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
 ENV_ID = 'HabitatTrain-v0'
 
 def example():
-  config = kemono.get_config(CONFIG_PATH)
-  env = train_env.make(ENV_ID, config, auto_stop=False)
-  env = SemanticWrapper(env, predictor_name='gt')
-  env = MapBuilderWrapper(env, draw_goals=True)
+  habitat_config = kemono.get_config(CONFIG_PATH)
+  env = train_env.make(ENV_ID, habitat_config, auto_stop=False)
+  config = OmegaConf.load(OMEGACONF_PATH)
+  env = SemanticWrapper(env, **config.envs.semantic_wrapper)
+  env = SemanticMapBuilderWrapper(
+    env,
+    **config.envs.semantic_map_builder
+  )
 
   print("Environment creation successful")
   while True:

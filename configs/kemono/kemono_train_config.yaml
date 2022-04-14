@@ -1,20 +1,168 @@
-semantic_map_builder:
-  local:
-    map_res: 0.03
-    map_width: 300
-    map_height: 300
-    trunc_height: 3.0
-  world:
-    map_res: 0.03
-    map_width: 300
-    map_height: 300
-  
-  walkable_labels: [2, 16]
-  ignore_labels: [0, 17]
-  layer_labels:
-    - [1, 4, 9, 24] # house structure: wall, door, window
-    - [7, 31, 36, 37] # cabinet, shelving, furniture, appliances
-    - [3, 10, 34] # chair, sofa, seating
-    - [5] # table
-    - [18, 23] # toilet, shower, bathtub
-  
+macro:
+  backbone:
+    net_config:
+      rgb:
+        type: cnn
+        mlp_units: [512]
+      large_map:
+        type: cnn
+        mlp_units: [512]
+      small_map:
+        type: cnn
+        mlp_units: [512]
+    fuse_config:
+      type: mlp
+      mlp_units: [1024]
+  goal_mapping:
+    0: chair
+    1: bed
+    2: plant
+    3: toilet
+    4: tv_monitor
+    5: sofa
+
+
+envs:
+  auto_stop: true
+  semantic_wrapper:
+    predictor_name: 'gt'
+  semantic_map_builder:
+    world_config: # this is used as the base config of map projector
+      map_res: 0.03
+      map_width: 300 # initial width and height
+      map_height: 300
+      trunc_height_max: 1.7
+      width_offset: 0.0
+      height_offset: 0.0
+      clip_border: 10
+      fill_value: 0
+      to_global: true
+      device: cuda
+    local_config:
+      map_res: 0.03
+      map_width: 300
+      map_height: 300
+      width_offset: 150.0
+      height_offset: 0.0
+      fill_value: 0
+      to_global: False
+      center_mode: none
+    maps_config: # each map will be an observation in the observation dict
+      large_map:
+        type: world2local # can be world, local, world2local
+        crop:
+          center: camera # can be camera, origin
+          width: 600
+          height: 600
+        smooth:
+          dilate_size: 5
+          dilate_iter: 2
+          erode_size: 5
+          erode_iter: 1
+        colorize:
+          draw_origin: false
+          draw_camera: true
+          draw_trajectory: true
+          draw_goals: false
+      small_map:
+        type: world2local
+        crop:
+          center: camera
+          width: 300
+          height: 300
+        smooth:
+          dilate_size: 3
+          dilate_iter: 3
+          erode_size: 3
+          erode_iter: 3
+        colorize:
+          draw_origin: false
+          draw_camera: false
+          draw_trajectory: true
+          draw_goals: false
+    num_classes: 40
+    walkable_labels: [2, 16] # floor, stairs
+    ignore_labels: [0, 17, 20, 28, 38] # void, ceiling, towel, lightning, clothes
+    layers_labels:
+      - [1, 9, 24, 30] # wall, door, window, column, railing
+      - [4, 16] # door, stairs
+      - [7, 27, 31, 36, 37] # cabinet, fireplace, shelving, furniture, appliances
+      - [3, 5, 10, 26, 34] # chair, table, sofa, counter, seating
+      - [8, 11] # bed, cushion
+      - [18, 23, 25] # toilet, shower, bathtub
+      - [14] # plant
+      - [22] # tv_monitor
+    color_palette:
+      - "#FFFFFF" # background
+      - "#999999" # obstacles
+      - "#F2F2F2" # walkable
+      - "#999999" # layer 0
+      - "#9EDAE5" # layer 1
+      - "#FF871F" # layer 2
+      - "#A55194" # layer 3
+      - "#7A70E8" # layer 4
+      - "#E7969C" # layer 5
+      - "#09AE1B" # layer 6
+      - "#D6616B" # layer 7
+      - "#FFF52D" # goal
+    goal_mapping: ${macro.goal_mapping}
+    render_maps: ['large_map', 'small_map']
+    enable_goals: false
+  clean_obs:
+    obs_configs:
+      rgb:
+        resize:
+          width: 128
+          height: 128
+          mode: 'bilinear'
+        channel_first: true
+      large_map:
+        resize:
+          width: 128
+          height: 128
+        channel_first: true
+      small_map:
+        resize:
+          width: 128
+          height: 128
+        channel_first: true
+      objectgoal: {}
+    video_config:
+      image: ['rgb', 'seg_color', 'large_map']
+      size: [[640, 480], [640, 480], [480, 480]]
+      label: ['RGB', 'Segmentation', 'Topdown View']
+      goal: 'objectgoal'
+      goal_mapping: ${macro.goal_mapping}
+
+sac:
+  runner:
+    goal_mapping: ${macro.goal_mapping}
+    report_n_episodes: 10
+  policy:
+    backbone: ${macro.backbone}
+    hidden_units: 1024
+    mlp_units: [256] # 1024 -> 256 -> n_actions
+    skip_conn: true
+    rnn_type: lstm
+  value:
+    backbone: ${macro.backbone}
+    hidden_units: 1024
+    mlp_units: [256] # 1024 -> 256 -> n_actions
+    skip_conn: true
+    rnn_type: lstm
+  init_entcoef: 0.5
+  entropy_scale: 0.2
+  policy_lr: 3.0e-4
+  value_lr: 3.0e-4
+  alpha_lr: 3.0e-4
+  tau: 0.05
+  n_steps: 64
+  n_gradsteps: 10
+
+
+train_dataset: {}
+
+
+
+
+

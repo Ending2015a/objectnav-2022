@@ -22,7 +22,11 @@ def reward_v0(
   done: bool,
   info: Dict[str, Any]
 ):
-  return 0
+  metrics = info["metrics"]
+  distance_to_goal = metrics['distance_to_goal']
+  if metrics['success']:
+    return 10.0
+  return -distance_to_goal
 
 @dataclass
 class TrainEnvSpec():

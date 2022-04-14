@@ -132,9 +132,8 @@ class SemanticWrapper(gym.Wrapper):
     seg = self.predictor.predict(obs)
     obs[self.seg_key] = seg
     # colorize segmentation map
-    if self.colorized:
-      seg_color = self.semap.colorize_categorical_map(seg, rgb=True)
-      obs[self.seg_color_key] = seg_color
+    seg_color = self.semap.colorize_categorical_map(seg, rgb=True)
+    obs[self.seg_color_key] = seg_color
     self._cached_obs = obs
     return obs
   
@@ -150,15 +149,7 @@ class SemanticWrapper(gym.Wrapper):
     if (self._cached_obs is None
         or self.seg_key not in self._cached_obs):
       return res
-    # if the colorized flag is not set
-    # seg_color (RGB image) does not contain in the observation dict
-    # hense we have to colorize from the raw seg map (ID map)
-    # otherwise, we can directly use the seg_color in the observation dict
-    if not self.colorized:
-      seg = self._cached_obs[self.seg_key]
-      seg_color = self.semap.colorize_categorical_map(seg, rgb=True)
-    else:
-      seg_color = self._cached_obs[self.seg_color_key]
+    seg_color = self._cached_obs[self.seg_color_key]
     # make scene
     if mode == 'rgb_array':
       # return concatenated RGB image
