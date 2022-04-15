@@ -13,33 +13,20 @@ from typing import (
 )
 # --- 3rd party ---
 # --- my module ---
-from kemono.data.dataspec import DataSpec, _generate_dataspec
 from kemono.data.stream_producer import BaseStreamProducer, StreamInfo
+from kemono.data.stream_producer import IGNORE_ERRORS
 
 class StreamProducerWrapper():
   def __init__(self, stream_producer: BaseStreamProducer):
     self.stream_producer = stream_producer
-    self._dataspec = None
     self.require(BaseStreamProducer)
 
   def __getattr__(self, name: str) -> Any:
     return getattr(self.stream_producer, name)
 
   @property
-  def dataspec(self) -> DataSpec:
-    if self._dataspec is None:
-      self._dataspec = self.gen_dataspec()
-    return self._dataspec
-
-  @property
   def unwrapped(self) -> BaseStreamProducer:
     return self.stream_producer.unwrapped
-
-  def gen_dataspec(self) -> DataSpec:
-    # read one stream
-    data = self.read_stream(self.get_stream_info())
-    sigs = _generate_dataspec(data)
-    return sigs
 
   def closed(self) -> bool:
     return self.stream_producer.closed()
@@ -60,12 +47,26 @@ class StreamProducerWrapper():
   def get_sample(self) -> StreamInfo:
     """Sample one stream info from the buffer"""
     return self.stream_producer.get_sample()
-  
+
+  def _safe_read_stream(
+    self,
+    stream_info: StreamInfo
+  ) -> Tuple[bool, StreamInfo]:
+    try:
+      data = self.read_stream(stream_info)
+      return True, data
+    except:
+      if IGNORE_ERRORS:
+        return False, None
+      raise
+
   def get_stream(self) -> StreamInfo:
     """Get stream info with loaded stream data"""
     try:
-      stream_info = self.get_sample()
-      data = self.read_stream(stream_info)
+      res = False
+      while not res:
+        stream_info = self.get_sample()
+        res, data = self._safe_read_stream(stream_info)
       stream_info.data = data
     except queue.Empty:
       return None

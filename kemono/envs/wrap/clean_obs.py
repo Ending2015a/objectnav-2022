@@ -38,6 +38,7 @@ class CleanObsWrapper(gym.Wrapper):
     self.video_config = video_config
     self.observation_space = self.make_observation_space()
     self._cached_obs = None
+    self._cached_canvas = None
 
   def reset(self):
     obs = self.env.reset()
@@ -50,6 +51,7 @@ class CleanObsWrapper(gym.Wrapper):
     return self.get_observation(obs), rew, done, info
 
   def get_observation(self, obs):
+    self._cached_canvas = None
     new_obs = {}
     for key in self.obs_config.keys():
       config = self.obs_config[key]
@@ -101,23 +103,29 @@ class CleanObsWrapper(gym.Wrapper):
     return new_obs_space
 
   def render(self, mode='human'):
-    if mode != 'rgb_array':
+    if mode == 'interact':
       return self.env.render(mode=mode)
-    # we only do rendering for rgb_array mode here
+    # rendering mode is human or rgb_array
     goal_id = self._cached_obs[self.video_config.goal]
     goal_name = self.video_config.goal_mapping[np.asarray(goal_id).item()]
     canvas = []
-    for idx, key in enumerate(self.video_config.image):
-      label = self.video_config.label[idx]
-      size = tuple(self.video_config.size[idx])
-      image = self._cached_obs[key]
-      image = cv2.resize(image, size, cv2.INTER_NEAREST)
-      image = np.pad(image, ((2, 2), (2, 2), (0, 0)), constant_values=100)
-      image = np.pad(image, ((100, 30), (30, 30), (0,0)), constant_values=255)
-      if idx == 0:
-        label = label + f' (Goal: {goal_name})'
-      image = cv2.putText(image, label, (70, 70), cv2.FONT_HERSHEY_TRIPLEX,
-        1.3, (0, 0, 0), 1, cv2.LINE_AA)
-      canvas.append(image)
-    canvas = np.concatenate(canvas, axis=1)
+    if self._cached_canvas is None:
+      for idx, key in enumerate(self.video_config.image):
+        label = self.video_config.label[idx]
+        size = tuple(self.video_config.size[idx])
+        image = self._cached_obs[key]
+        image = cv2.resize(image, size, cv2.INTER_NEAREST)
+        image = np.pad(image, ((2, 2), (2, 2), (0, 0)), constant_values=100)
+        image = np.pad(image, ((100, 30), (30, 30), (0,0)), constant_values=255)
+        if idx == 0:
+          label = label + f' (Goal: {goal_name})'
+        image = cv2.putText(image, label, (70, 70), cv2.FONT_HERSHEY_TRIPLEX,
+          1.3, (0, 0, 0), 1, cv2.LINE_AA)
+        canvas.append(image)
+      canvas = np.concatenate(canvas, axis=1)
+      self._cached_canvas = canvas
+    else:
+      canvas = self._cached_canvas
+    if mode == 'human':
+      cv2.imshow('Habitat', canvas[...,::-1])
     return canvas

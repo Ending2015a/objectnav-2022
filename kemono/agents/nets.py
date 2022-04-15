@@ -1,4 +1,5 @@
 # --- built in ---
+import copy
 from typing import (
   Any,
   List,
@@ -14,6 +15,7 @@ import torch
 from torch import nn
 import rlchemy
 from rlchemy.lib.nets import DelayedModule
+from rlchemy import registry
 import gym
 from omegaconf import OmegaConf
 # --- my module ---
@@ -25,6 +27,7 @@ __all__ = [
   'AwesomeRnn'
 ]
 
+@registry.register.kemono_net('mlp', default=True)
 class AwesomeMlp(DelayedModule):
   def __init__(
     self,
@@ -38,8 +41,10 @@ class AwesomeMlp(DelayedModule):
     self.output_dim = None
     self._model = None
     if dim is not None:
-      self.build(torch.Size([dim]))
-  
+      if isinstance(dim, int):
+        dim = [dim]
+      self.build(torch.Size(dim))
+
   def build(self, input_shape: torch.Size):
     self.input_dim = input_shape[-1]
     in_dim = self.input_dim
@@ -64,6 +69,8 @@ class AwesomeMlp(DelayedModule):
     x = x.view(*batches, x.shape[-1])
     return x
 
+
+@registry.register.kemono_net('cnn')
 class AwesomeCnn(DelayedModule):
   def __init__(
     self,
@@ -143,31 +150,30 @@ class AwesomeBackbone(DelayedModule):
     for key, shape in input_shapes.items():
       assert key in self.net_config
       config = self.net_config[key]
-      if config.type == 'cnn':
-        model = AwesomeCnn(shape, config.mlp_units)
-        out_dim += model.output_dim
-      elif config.type == 'mlp':
-        model = AwesomeMlp(shape[-1], config.mlp_units)
+      net_class = registry.get.kemono_net(config.type)
+      if net_class is not None:
+        config = copy.deepcopy(config)
+        config.pop('type', None)
+        model = net_class(shape, **config)
         out_dim += model.output_dim
       else:
         model = nn.Identity()
         out_dim += shape[-1]
       models[key] = model
     self._models = nn.ModuleDict(models)
-    if self.fuse_config.type == 'mlp':
-      self._fuse_model = AwesomeMlp(out_dim, self.fuse_config.mlp_units)
+    net_class = registry.get.kemono_net(self.fuse_config.type)
+    if net_class is not None:
+      config = copy.deepcopy(self.fuse_config)
+      config.pop('type', None)
+      self._fuse_model = net_class(out_dim, **config)
       out_dim = self._fuse_model.output_dim
-    elif self.fuse_config.type == 'identity':
-      self._fuse_model = nn.Identity()
     else:
-      raise NotImplementedError
+      # if type is not specified or does not exist
+      self._fuse_model = nn.Identity()
     self.output_dim = out_dim
     self.mark_as_built()
 
   def forward(self, x: torch.Tensor, *args, **kwargs) -> torch.Tensor:
-    # expecting 2D (b, n) or 4D (b, c, h, w) tensors
-    # 3D tensor (s, b, n) is flattened to 2D (s*b, n)
-    # 5D tensor (s, b, c, h, w) is flattened to 4D (s*b, c, h, w)
     res = []
     for key, tensor in x.items():
       tensor = self._models[key](tensor)
@@ -176,6 +182,7 @@ class AwesomeBackbone(DelayedModule):
     return self._fuse_model(x, *args, **kwargs)
 
 
+@registry.register.kemono_cell('lstm', default=True)
 class AwesomeLstm(nn.Module):
   def __init__(
     self,
@@ -224,7 +231,7 @@ class AwesomeLstm(nn.Module):
       torch.zeros((batch_size, self.units), device=device)
     )
 
-
+@registry.register.kemono_cell('gru')
 class AwesomeGru(nn.Module):
   def __init__(
     self,
@@ -275,6 +282,7 @@ class AwesomeGru(nn.Module):
     )
 
 
+@registry.register.kemono_net('rnn')
 class AwesomeRnn(nn.Module):
   def __init__(
     self,
@@ -289,13 +297,10 @@ class AwesomeRnn(nn.Module):
     self.skip_conn = skip_conn
     self.rnn_type = rnn_type.lower()
     self.return_history = return_history
-    assert self.rnn_type in ['lstm', 'gru']
-    if self.rnn_type == 'lstm':
-      self.cell = AwesomeLstm(dim, units)
-    elif self.rnn_type == 'gru':
-      self.cell = AwesomeGru(dim, units)
-    else:
-      raise ValueError(f"Unknown rnn type: {self.rnn_type}")
+    cell_class = registry.get.kemono_cell(self.rnn_type)
+    assert cell_class is not None, \
+      f"rnn type does not exist: {self.rnn_type}"
+    self.cell = cell_class(dim, units)
 
   def forward(
     self,
@@ -353,3 +358,21 @@ class AwesomeRnn(nn.Module):
 
   def get_states(self, batch_size=1, device='cuda'):
     return self.cell.get_states(batch_size=batch_size, device=device)
+
+
+@registry.register.kemono_net('embed')
+class AwesomeEmbed(nn.Module):
+  def __init__(
+    self,
+    *args,
+    num_embed: int,
+    embed_dim: int = 128,
+    **kwargs
+  ):
+    super().__init__()
+    self._model = nn.Embedding(num_embed, embed_dim, **kwargs)
+    self.output_dim = embed_dim
+  
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    x = x.to(dtype=torch.int64)
+    return self._model(x)

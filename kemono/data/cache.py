@@ -11,7 +11,7 @@ import rlchemy
 # --- my module ---
 
 __all__ = [
-  'Cache',
+  'Caches',
   'NestedCaches'
 ]
 

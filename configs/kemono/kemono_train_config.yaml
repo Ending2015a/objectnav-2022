@@ -3,13 +3,17 @@ macro:
     net_config:
       rgb:
         type: cnn
-        mlp_units: [512]
+        mlp_units: [1024]
       large_map:
         type: cnn
         mlp_units: [512]
       small_map:
         type: cnn
         mlp_units: [512]
+      objectgoal:
+        type: embed
+        num_embed: 6
+        embed_dim: 128
     fuse_config:
       type: mlp
       mlp_units: [1024]

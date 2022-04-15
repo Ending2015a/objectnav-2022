@@ -87,8 +87,6 @@ class ManualController:
       if action is not None:
         return action
 
-
-
 def set_seed(seed):
   import random
   random.seed(seed)
@@ -129,6 +127,9 @@ def example(args):
   else:
     controller = ShortestPathController(env, GOAL_RADIUS)
 
+  if args.manual and args.render is None:
+    args.render = 'human'
+
   print("Start collecting data...")
   print("  Split:", args.split)
   print("  Config path:", CONFIG_PATH)
@@ -154,8 +155,8 @@ def example(args):
     print('Episode id: {}, scene id: {}'.format(env.current_episode.episode_id, env.current_episode.scene_id))
 
     # --- show observations ---
-    if args.manual or args.interact:
-      env.render("interact")
+    if args.render is not None:
+      env.render(args.render)
     if args.manual:
       print('Observations:')
       print(f'  Object goal: {observations["objectgoal"]}')
@@ -182,8 +183,8 @@ def example(args):
       # rgb = np.transpose(observations['large_map'], (1, 2, 0))
       # cv2.imshow('large_map', rgb[...,::-1])
 
-      if args.manual or args.interact:
-        env.render("interact")
+      if args.render is not None:
+        env.render(args.render)
       if args.manual:
         metrics = info["metrics"]
         goal = info["goal"]
@@ -214,6 +215,7 @@ if __name__ == "__main__":
   parser.add_argument('--save_path', type=str, default='/src/logs/kemono_expert/')
   parser.add_argument('--seed', type=int, default=0)
   parser.add_argument('--manual', action='store_true', default=False)
+  parser.add_argument('--render', type=str, choices=['interact', 'human'], default=None)
   parser.add_argument('--interact', action='store_true', default=False)
   args = parser.parse_args()
   example(args)

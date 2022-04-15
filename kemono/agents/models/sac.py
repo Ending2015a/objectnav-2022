@@ -203,11 +203,7 @@ class Agent(nn.Module):
       out_dim = 1,
       **self.value_config
     )
-    _tensor_op = lambda space: torch.zeros((1,) + space.shape)
-    input_tensors = rlchemy.utils.map_nested_space(
-      self.observation_space,
-      op = _tensor_op
-    )
+    input_tensors = rlchemy.utils.input_tensor(self.observation_space)
     self.forward_policy(input_tensors)
     self.forward_value(input_tensors)
     self.forward_q_values(input_tensors)
@@ -221,11 +217,18 @@ class Agent(nn.Module):
     self,
     x: Dict[str, torch.Tensor]
   ):
-    op = lambda obs_and_space: rlchemy.utils.preprocess_obs(*obs_and_space)
+    def preprocess_obs(obs_and_space):
+      obs, space = obs_and_space
+      # we only preprocess Box spaces, e.g. images, vectors
+      if isinstance(space, gym.spaces.Box):
+        obs = rlchemy.utils.preprocess_obs(obs, space)
+      return obs
+    
     with torch.no_grad():
+      # process nestedly
       return rlchemy.utils.map_nested_tuple(
         (x, self.observation_space),
-        op = op,
+        op = preprocess_obs,
         sortkey = True
       )
 

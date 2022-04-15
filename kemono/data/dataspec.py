@@ -7,7 +7,6 @@ from typing import (
   Callable,
   Tuple
 )
-from distutils.version import StrictVersion as Version
 # --- 3rd party ---
 import numpy as np
 # --- my module ---

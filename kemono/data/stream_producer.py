@@ -1,6 +1,7 @@
 # --- built in ---
 import os
 import abc
+import glob
 import copy
 import queue
 import logging
@@ -10,13 +11,15 @@ from typing import (
   Any,
   Optional,
   List,
+  Dict,
   Union,
   Tuple,
   Iterable,
-  Iterator
+  Iterator,
 )
 # --- 3rd party ---
 import numpy as np
+import rlchemy
 # --- my module ---
 from kemono.data import dataspec as km_dataspec
 
@@ -28,6 +31,7 @@ __all__ = [
 ]
 
 TRAIN_DATA_ROOT = 'TRAIN_DATA_ROOT'
+IGNORE_ERRORS = os.environ.get('KEMONO_SP_IGNORE_ERRORS', True)
 
 def get_data_root(
   data_root: Optional[str] = None,
@@ -56,26 +60,36 @@ def _convert_to_string_list(
 
 @dataclass
 class StreamInfo:
-  index: Optional[int]
-  path: Optional[str]
-  data: Optional[Any]
+  index: Optional[int] = None
+  path: Optional[str] = None
+  data: Optional[Any] = None
   # for nested Stream Producer
-  info: Optional["StreamInfo"]
-  producer_id: Optional[int]
+  info: Optional["StreamInfo"] = None
+  producer_id: Optional[int] = None
 
 class BaseStreamProducer(metaclass=abc.ABCMeta):
   """StreamProducer responsible for producing random stream data
   loaded from dick
+  {data_root}/{globa_path}
   {data_root}/{source_id}/{stream_id}/{stream_data}.npy
   """
   def __init__(
     self,
     data_root: Optional[str] = None,
-    source_ids: Optional[List[str]] = None,
+    glob_paths: Optional[List[str]] = None,
     stream_paths: Optional[List[str]] = None,
     shuffle: bool = False,
     callbacks: List[Any] = []
   ):
+    """The base class of stream producer
+
+    Args:
+        data_root (Optional[str], optional): _description_. Defaults to None.
+        glob_paths (Optional[List[str]], optional): _description_. Defaults to None.
+        stream_paths (Optional[List[str]], optional): _description_. Defaults to None.
+        shuffle (bool, optional): _description_. Defaults to False.
+        callbacks (List[Any], optional): _description_. Defaults to [].
+    """
     self.shuffle = shuffle
     # initialize state variables
     self._stream_paths = None
@@ -89,7 +103,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
     callbacks = callbacks or []
     for callback in callbacks:
       self.register_callback(callback)
-    self.load_stream_paths(data_root, source_ids, stream_paths)
+    self.load_stream_paths(data_root, glob_paths, stream_paths)
     self.recharge()
 
   @property
@@ -113,7 +127,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
   def load_stream_paths(
     self,
     data_root: Optional[str] = None,
-    source_ids: Optional[List[str]] = None,
+    glob_paths: Optional[List[str]] = None,
     stream_paths: Optional[List[str]] = None
   ):
     if stream_paths is None:
@@ -126,7 +140,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
         raise ValueError("Unknown stream_paths, stream_paths must be a `str` "
           f"or a list of `str`, got {type(stream_paths)}")
         
-    if source_ids is not None:
+    if glob_paths is not None:
       # get data root, raise exception if not specified
       data_root = get_data_root(data_root)
       if data_root is None:
@@ -134,26 +148,24 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
           f"variable `TRAIN_DATA_ROOT`, got {data_root}")
 
       try:
-        source_ids = _convert_to_string_list(source_ids)
+        glob_paths = _convert_to_string_list(glob_paths)
       except:
         raise ValueError("Unknown source_ids, source_ids must be a `str` or a "
           f"list of `str`, got {type(stream_paths)}")
     
-      for source_id in source_ids:
-        source_path = os.path.join(data_root, source_id)
-
-        # discard env_id, if env path does not exist
-        if not os.path.exists(source_path):
-          logging.warning(f"The path to source id [{source_id}] does not exist, "
-                          "ignore: {}".format(source_id, source_path))
-          continue
+      for glob_path in glob_paths:
+        glob_path = os.path.join(data_root, glob_path)
 
         # append streams to stream_paths
-        stream_paths.extend([os.path.join(source_path, stream_name)
-                              for stream_name in os.listdir(source_path)])
+        stream_names = glob.glob(glob_path, recursive=True)
+        if len(stream_names) == 0:
+          print('WARNING:Stream Producer: no stream were found in:')
+          print(f'WARNING:Stream Producer: {glob_path}')
+        stream_names = sorted(stream_names)
+        stream_paths.extend(stream_names)
 
     if len(stream_paths) == 0:
-      raise RuntimeError('No stream found')
+      print('WARNING:Stream Producer: no stream were found')
 
     self._stream_paths = stream_paths
     self.on_load_stream_paths()
@@ -175,9 +187,9 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       self._on_load_stream_paths_callbacks.append(callback)
 
   def recharge(self):
-    assert self._stream_paths is not None \
-      and len(self._stream_paths) > 0, \
-      "Stream paths are empty"
+    if (self._stream_paths is None
+        or len(self._stream_paths) == 0):
+      print('WARNING:Stream Producer: no stream were found')
     self.on_before_recharge()
     num_items = len(self._stream_paths)
     if self.shuffle:
@@ -232,6 +244,19 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       ind = self.buffer.get(block=False)
     return self.get_stream_info(ind)
 
+  def _safe_read_stream(
+    self,
+    stream_info: StreamInfo
+  ) -> Tuple[bool, StreamInfo]:
+    """The first bool denotes wherther the data is correctly loaded"""
+    try:
+      data = self.read_stream(stream_info)
+      return True, data
+    except:
+      if IGNORE_ERRORS:
+        return False, None
+      raise
+
   def get_stream(self) -> StreamInfo:
     """Sample one stream info and read the stream data
 
@@ -240,8 +265,10 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
         `stream.data` to get the loaded data
     """
     try:
-      stream_info = self.get_sample()
-      data = self.read_stream(stream_info)
+      res = False
+      while not res:
+        stream_info = self.get_sample()
+        res, data = self._safe_read_stream(stream_info)
       stream_info.data = data
     except queue.Empty:
       return None
@@ -273,6 +300,9 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       return self.get_stream(*args, **kwargs)
     else:
       return self.iterator(*args, **kwargs)
+
+  def require(self, _class: type):
+    return isinstance(self, _class)
 
   def __len__(self) -> int:
     return self.buffer.qsize()
@@ -310,7 +340,7 @@ class BaseDynamicStreamProducer(BaseStreamProducer):
   def __init__(
     self,
     data_root: Optional[str] = None,
-    source_ids: Optional[List[str]] = None,
+    glob_paths: Optional[List[str]] = None,
     stream_paths: Optional[List[str]] = None,
     shuffle: bool = False,
     callbacks: List[Any] = []
@@ -321,36 +351,38 @@ class BaseDynamicStreamProducer(BaseStreamProducer):
     Args:
         data_root (str, optional): _description_. Defaults to None.
         source_ids (List[str], optional): _description_. Defaults to None.
-        stream_paths (List[str], optional): _description_. Defaults to None.
+        glob_paths (List[str], optional): _description_. Defaults to None.
         shuffle (bool, optional): _description_. Defaults to False.
         filter_fn (Callable, optional): _description_. Defaults to None.
     """
+    self._load_kwargs = {
+      'data_root': copy.deepcopy(data_root),
+      'glob_paths': copy.deepcopy(glob_paths),
+      'stream_paths': copy.deepcopy(stream_paths)
+    }
+
     super().__init__(
       data_root = data_root,
-      source_ids = source_ids,
+      glob_paths = glob_paths,
       stream_paths = stream_paths,
       shuffle = shuffle,
       callbacks = callbacks
     )
-    self._load_kwargs = {
-      'data_root': copy.deepcopy(data_root),
-      'source_ids': copy.deepcopy(source_ids),
-      'stream_paths': copy.deepcopy(stream_paths)
-    }
 
   def on_before_recharge(self):
     # reload stream paths
     self.load_stream_paths(**self._load_kwargs)
     # callbacks
-    super().on_before_recharge(self)
+    super().on_before_recharge()
 
 class RlchemyStreamProducer(BaseStreamProducer):
-  def read_stream(self, stream_info: StreamInfo) -> Tuple[Any, ...]:
-    # TODO: load Rlchemy trajectory data
-    raise NotImplementedError
-
+  def read_stream(self, stream_info: StreamInfo) -> Dict[str, Any]:
+    traj = rlchemy.envs.load_trajectory(stream_info.path)
+    traj.pop('info', None)
+    return traj
 
 class RlchemyDynamicStreamProducer(BaseDynamicStreamProducer):
-  def read_stream(self, stream_info: StreamInfo) -> Tuple[Any, ...]:
-    # TODO: load Rlchemy trajectory data
-    raise NotImplementedError
+  def read_stream(self, stream_info: StreamInfo) -> Dict[str, Any]:
+    traj = rlchemy.envs.load_trajectory(stream_info.path)
+    traj.pop('info', None)
+    return traj

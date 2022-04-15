@@ -37,11 +37,12 @@ class CombinedStreamProducer(StreamProducerWrapper):
     self.shuffle = shuffle
     self._lock = threading.Lock()
     self.buffer = None
+    self.recharge()
   
   def recharge(self):
     indices = []
     for idx, producer in enumerate(self.stream_producers):
-      self.producer.maybe_recharge()
+      producer.maybe_recharge()
       indices.extend([idx] * producer.buffer.qsize())
     # generate permutations
     num_items = len(indices)
@@ -71,7 +72,7 @@ class CombinedStreamProducer(StreamProducerWrapper):
     return StreamInfo(info=info, producer_id=producer_id)
 
   def read_stream(self, stream_info: StreamInfo) -> Any:
-    producer = self.stream_producer[stream_info.producer_id]
+    producer = self.stream_producers[stream_info.producer_id]
     data = producer.read_stream(stream_info.info)
     return data
 
