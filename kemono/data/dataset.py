@@ -1,9 +1,11 @@
 # --- built in ---
 import sys
 import collections
+import copy
 from typing import (
   Any,
   List,
+  Tuple,
   Union,
   Callable,
   Iterator,
@@ -17,11 +19,12 @@ from torch.utils.data import IterableDataset
 import rlchemy
 # --- my module --
 from kemono.data.stream_producer import BaseStreamProducer
+from kemono.data.wrap import StreamProducerWrapper
 
 
 __all__ = [
   'Dataset',
-  'SequentialDataset'
+  'StreamDataset'
 ]
 
 class Dataset(IterableDataset):
@@ -44,12 +47,25 @@ class Dataset(IterableDataset):
     batch_size: int,
     drop_remainder: bool = False
   ) -> "Dataset":
-    return BatchDataset(self, batch_size, drop_remainder=drop_remainder)
+    return BatchDataset(
+      self,
+      batch_size,
+      drop_remainder = drop_remainder
+    )
 
   @staticmethod
   def range(*args, **kwargs) -> "Dataset":
     return RangeDataset(*args, **kwargs)
   
+  @staticmethod
+  def choice(
+    a: np.ndarray,
+    size: Union[int, Tuple[int, ...]],
+    replace: bool = False,
+    p: np.ndarray = None
+  ):
+    return ChoiceDataset(a, size, replace, p)
+
   @staticmethod
   def from_generator(generator_fn: Callable) -> "Dataset":
     return GeneratorDataset(generator_fn)
@@ -68,35 +84,32 @@ class Dataset(IterableDataset):
     choose_dataset: IterableDataset,
     stop_on_empty_dataset: bool = True
   ) -> "Dataset":
-    return ChooseDataset(
+    return ChooseFromDatasets(
       datasets,
       choose_dataset,
       stop_on_empty_dataset
     )
-
 
 class BatchDataset(Dataset):
   def __init__(
     self,
     dataset: IterableDataset,
     batch_size: int,
-    drop_remainder: bool = False,
-    batch_dim: int = 0
+    drop_remainder: bool = False
   ):
     assert isinstance(dataset, IterableDataset)
     assert batch_size > 0
     self.dataset = dataset
     self.batch_size = batch_size
     self.drop_remainder = drop_remainder
-    self.batch_dim = batch_dim
 
   def __iter__(self) -> Iterator:
     def _stack_op(batch_data):
       if torch.is_tensor(batch_data[0]):
-        return torch.stack(batch_data, dim=self.batch_dim)
+        return torch.stack(batch_data, dim=0)
       else:
         batch_data = list(map(np.asarray, batch_data))
-        return np.stack(batch_data, axis=self.batch_dim)
+        return np.stack(batch_data, axis=0)
     # create dataset iterator
     batch = []
     for data in self.dataset:
@@ -110,7 +123,7 @@ class BatchDataset(Dataset):
       yield rlchemy.utils.map_nested_tuple(tuple(batch), op=_stack_op)
 
 
-class ChooseDataset(Dataset):
+class ChooseFromDatasets(Dataset):
   def __init__(
     self,
     datasets: Iterable[IterableDataset],
@@ -237,6 +250,49 @@ class ShuffleDataset(Dataset):
       yield self.random_pop()
 
 
+class ChoiceDataset(Dataset):
+  def __init__(
+    self,
+    a: np.ndarray,
+    size: Optional[Union[int, Tuple[int, ...]]] = None,
+    replace: bool = False,
+    p: np.ndarray = None
+  ):
+    """Randomly chooce samples from a given 1D-array
+    Note that if the size is specified the dataset will
+    iterate over the first dimension. For example, if (3, 5)
+    then there are 3 slices of samples, each sample has shape
+    (5,)
+
+    Args:
+        array (np.ndarray): _description_
+        size (Union[int, Tuple[int, ...]]): _description_
+        replace (bool, optional): _description_. Defaults to False.
+        p (np.ndarray, optional): _description_. Defaults to None.
+    """
+    self.a = copy.deepcopy(a)
+    self.size = copy.deepcopy(size)
+    self.replace = replace
+    self.p = copy.deepcopy(p)
+    # ---
+    self._seed_sequence = np.random.SeedSequence()
+    self._rng = np.random.default_rng(
+      np.random.PCG64(self._seed_sequence)
+    )
+
+  def __iter__(self) -> Iterator:
+    choices = self._rng.choice(
+      self.a,
+      size = self.size,
+      replace = self.replace,
+      p = self.p
+    )
+    if np.isscalar(choices):
+      yield choices
+    else:
+      for choice in choices:
+        yield choice
+
 class RangeDataset(Dataset):
   def __init__(self, *args, **kwargs):
     _slice = slice(*args, **kwargs)
@@ -271,12 +327,13 @@ class ZipDataset(Dataset):
     yield from zip(*self.datasets)
 
 
-class SequentialDataset(Dataset):
+class StreamDataset(Dataset):
   def __init__(
     self,
     stream_producer: Union[
       BaseStreamProducer, Iterable[BaseStreamProducer]],
     num_workers: Optional[int] = None,
+    group_size: Optional[int] = None,
     seq_len: Optional[int] = None,
     drop_remainder: bool = False
   ):
@@ -288,7 +345,10 @@ class SequentialDataset(Dataset):
         stream_producer = list(stream_producer)
         assert len(stream_producer) == num_workers
       else:
-        assert isinstance(stream_producer, BaseStreamProducer)
+        assert isinstance(stream_producer, (
+          BaseStreamProducer,
+          StreamProducerWrapper
+        ))
         # if a single stream producer is provided
         # copy the instance for `num_workers` times
         # note that in this case a single stream producer
@@ -302,20 +362,24 @@ class SequentialDataset(Dataset):
           cls(
             stream_producer = stream_producer[i],
             num_workers = None,
+            group_size = group_size,
             seq_len = seq_len,
             drop_remainder = drop_remainder
           )
         ))
         for i in range(num_workers)
       ]
+      group_size = group_size or num_workers
       choose_dataset = (
-        Dataset.range(num_workers)
-               .shuffle(num_workers, reshuffle_each_iteration=True)
+        Dataset.choice(range(num_workers), num_workers, replace=False)
                .repeat(-1)
       )
       dataset = Dataset.choose_from_datasets(datasets, choose_dataset)
     else:
-      assert isinstance(stream_producer, BaseStreamProducer)
+      assert isinstance(stream_producer, (
+        BaseStreamProducer,
+        StreamProducerWrapper
+      ))
       dataset = Dataset.from_generator(
         self.create_generator(
           stream_producer,
@@ -327,8 +391,9 @@ class SequentialDataset(Dataset):
     self.dataset = dataset
 
   def __iter__(self) -> Iterator:
-    return self.generator()
-  
+    yield from self.dataset
+
+  @staticmethod
   def create_generator(
     stream_producer: BaseStreamProducer,
     seq_len: Optional[int],
@@ -340,36 +405,32 @@ class SequentialDataset(Dataset):
         """slice sinple sample"""
         return x[ind]
 
-      def _slice_chunk_op(x: Any, ind: int) -> Any:
-        """slice a chunk of samples
-        Note that this function does not check the length of data.
-        It may sample out of bounds and returns a chunk that smaller
-        than `seq_len`. If you want to ensure the chunk size are
-        padded to the equal size, use `_slice_and_pad_chunk_op` insread.
-        """
-        return x[ind:ind+seq_len]
-      
+      def _slice_chunk_op(x: Any, ind: int):
+        if ind + seq_len > stream_length:
+          return x[ind:]
+        else:
+          return x[ind:ind+seq_len]
+
+      def _pad_chunk_op(x: Any, pad_size: int) -> Any:
+        pad_size = [(0, pad_size)]
+        for _ in range(1, len(x.shape)):
+          pad_size.append((0, 0))
+        return np.pad(x, pad_size)
+
       def _slice_and_pad_chunk_op(x: Any, ind: int) -> Any:
         data = _slice_chunk_op(x, ind)
         pad_size = seq_len - len(data)
         if pad_size == 0:
           return data
         # pad data to seq_len
-        if torch.is_tensor(data):
-          return torch.cat([data]+[data[-1:]] * pad_size, dim=0)
-        else:
-          return np.concatenate([data]+[data[-1:]] * pad_size, axis=0)
-      
-      def _get_length_op(x: Any) -> int:
-        """Get data length"""
-        return len(x)
+        return _pad_chunk_op(data, pad_size)
 
       # recharge stream producer
       stream_producer.maybe_recharge()
       stream = stream_producer(iterate=False)
-      stream_length = next(iter(rlchemy.utils.iter_nested(
-        stream.data, _get_length_op
-      )))
+      print('Load:', stream.path)
+      first_data = next(iter(rlchemy.utils.iter_nested(stream.data)))
+      stream_length = len(first_data)
       if seq_len is None:
         # slice one sample
         for i in range(0, stream_length):

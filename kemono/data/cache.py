@@ -62,11 +62,15 @@ class NestedCaches():
     }
     """
     def _melloc_op(v):
+      if torch.is_tensor(v):
+        v = v.detach()
+      else:
+        v = rlchemy.utils.to_tensor(v)
       return [
         torch.zeros(
           v.shape[1:],
-          dtype=v.dtype,
-          device=v.device
+          dtype = v.dtype,
+          device = v.device
         )
       ] * self.buffer_size
     self.data = rlchemy.utils.map_nested(data, op=_melloc_op)

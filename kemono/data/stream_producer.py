@@ -92,7 +92,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
     """
     self.shuffle = shuffle
     # initialize state variables
-    self._stream_paths = None
+    self.stream_paths: List[str] = None
     self._dataspec = None
     self._lock = threading.Lock()
     self._is_closed = False
@@ -115,14 +115,6 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
   @property
   def unwrapped(self) -> "BaseStreamProducer":
     return self
-
-  @property
-  def stream_paths(self) -> List[str]:
-    return self._stream_paths
-
-  @stream_paths.setter
-  def stream_paths(self, values: List[str]):
-    self._stream_paths = values
 
   def load_stream_paths(
     self,
@@ -167,7 +159,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
     if len(stream_paths) == 0:
       print('WARNING:Stream Producer: no stream were found')
 
-    self._stream_paths = stream_paths
+    self.stream_paths = stream_paths
     self.on_load_stream_paths()
   
   def gen_dataspec(self):
@@ -187,11 +179,11 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       self._on_load_stream_paths_callbacks.append(callback)
 
   def recharge(self):
-    if (self._stream_paths is None
-        or len(self._stream_paths) == 0):
+    if (self.stream_paths is None
+        or len(self.stream_paths) == 0):
       print('WARNING:Stream Producer: no stream were found')
     self.on_before_recharge()
-    num_items = len(self._stream_paths)
+    num_items = len(self.stream_paths)
     if self.shuffle:
       indices = np.random.permutation(num_items)
     else:
@@ -214,7 +206,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
   def get_stream_info(self, ind: Optional[Any]=None):
     if ind is None:
       ind = 0 # dummy info
-    return StreamInfo(index=ind, path=self._stream_paths[ind])
+    return StreamInfo(index=ind, path=self.stream_paths[ind])
 
   @abc.abstractmethod
   def read_stream(self, stream_info: StreamInfo) -> Tuple[Any, ...]:
@@ -308,7 +300,7 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
     return self.buffer.qsize()
   
   def __str__(self) -> str:
-    return f"<{type(self).__name__}({len(self._stream_paths)})>"
+    return f"<{type(self).__name__}({len(self.stream_paths)})>"
     
   def __repr__(self) -> str:
       return str(self)
@@ -326,15 +318,15 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
   # === events ===
   def on_before_recharge(self):
     for callback in self._on_before_recharge_callbacks:
-      callback(self)
+      callback.on_before_recharge(self)
 
   def on_after_recharge(self):
     for callback in self._on_after_recharge_callbacks:
-      callback(self)
+      callback.on_before_recharge(self)
   
   def on_load_stream_paths(self):
     for callback in self._on_load_stream_paths_callbacks:
-      callback(self)
+      callback.on_before_recharge(self)
 
 class BaseDynamicStreamProducer(BaseStreamProducer):
   def __init__(

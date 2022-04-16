@@ -52,7 +52,7 @@ class AwesomeMlp(DelayedModule):
     for out_dim in self.mlp_units:
       layers.extend([
         nn.Linear(in_dim, out_dim),
-        nn.LeakyReLU(0.01)
+        nn.LeakyReLU(0.01, inplace=True)
       ])
       in_dim = out_dim
     self._model = nn.Sequential(*layers)
@@ -93,11 +93,11 @@ class AwesomeCnn(DelayedModule):
     dim = input_shape[0]
     cnn = nn.Sequential(
       nn.Conv2d(dim, 32, 8, 4, padding=0),
-      nn.LeakyReLU(0.01),
+      nn.LeakyReLU(0.01, inplace=True),
       nn.Conv2d(32, 64, 4, 2, padding=0),
-      nn.LeakyReLU(0.01),
+      nn.LeakyReLU(0.01, inplace=True),
       nn.Conv2d(64, 64, 3, 1, padding=0),
-      nn.LeakyReLU(0.01),
+      nn.LeakyReLU(0.01, inplace=True),
       nn.Flatten(start_dim=-3, end_dim=-1)
     )
     # forward cnn to get output size

@@ -14,12 +14,15 @@ from typing import (
 from distutils.version import StrictVersion as Version
 # --- 3rd party ---
 import numpy as np
+import rlchemy
 # --- my module ---
 from kemono.data.stream_producer import BaseStreamProducer, StreamInfo
 from kemono.data.wrap.stream_producer_wrapper import StreamProducerWrapper
 
 __all__ = [
-  'CombinedStreamProducer'
+  'CombinedStreamProducer',
+  'ZeroPadChunkStreamWrapper',
+  'ResetMaskStreamWrapper'
 ]
 
 # custom stream producer wrappers
@@ -95,3 +98,52 @@ class CombinedStreamProducer(StreamProducerWrapper):
   def unwrapped(self) -> BaseStreamProducer:
     # first stream_producer
     return self.stream_producer.unwrapped
+
+
+class ZeroPadChunkStreamWrapper(StreamProducerWrapper):
+  def __init__(
+    self,
+    stream_producer: BaseStreamProducer,
+    chunk_size: Optional[int] = 32,
+    mask_key: str = 'mask'
+  ):
+    super().__init__(stream_producer)
+    self.chunk_size = chunk_size
+    self.mask_key = mask_key
+
+  def read_stream(self, stream_info: StreamInfo) -> Any:
+    data = super().read_stream(stream_info)
+    # get the length of data from the first field
+    data_len = len(next(iter(rlchemy.utils.iter_nested(data))))
+    mask = np.ones((data_len,), dtype=bool)
+    data[self.mask_key] = mask
+    if self.chunk_size is not None:
+      pad_size = self.chunk_size - (data_len % self.chunk_size)
+      data = rlchemy.utils.map_nested(data, op=self._pad_op, pad_size=pad_size)
+    return data
+
+  @staticmethod
+  def _pad_op(data, pad_size):
+    pad_size = [(0, pad_size)]
+    for _ in range(1, len(data.shape)):
+      pad_size.append((0, 0))
+    return np.pad(data, pad_size)
+
+
+class ResetMaskStreamWrapper(StreamProducerWrapper):
+  def __init__(
+    self,
+    stream_producer: BaseStreamProducer,
+    reset_key: str = 'reset'
+  ):
+    super().__init__(stream_producer)
+    self.reset_key = reset_key
+  
+  def read_stream(self, stream_info: StreamInfo) -> Any:
+    data = super().read_stream(stream_info)
+    # get the length of data from the first field
+    data_len = len(next(iter(rlchemy.utils.iter_nested(data))))
+    reset = np.zeros((data_len,), dtype=bool)
+    reset[0] = True
+    data[self.reset_key] = reset
+    return data

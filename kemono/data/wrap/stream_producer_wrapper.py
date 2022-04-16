@@ -48,6 +48,9 @@ class StreamProducerWrapper():
     """Sample one stream info from the buffer"""
     return self.stream_producer.get_sample()
 
+  def register_callback(self, callback):
+    self.stream_producer.register_callback(callback)
+
   def _safe_read_stream(
     self,
     stream_info: StreamInfo

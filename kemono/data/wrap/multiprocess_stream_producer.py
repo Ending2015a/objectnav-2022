@@ -126,13 +126,13 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
     self.env_vars = env_vars
     
     self.threads = []
-    self.task_count = TaskCounter()
+    self.task_counter = TaskCounter()
     self.result_queue: multiprocessing.Queue = None
     self.task_queue: multiprocessing.Queue = None
     self.stream_producer_fn = stream_producer_fn
     self.stop_signal: multiprocessing.Event = None # to stop processes
 
-    self.steup_threads()
+    self.setup_threads()
 
   def setup_threads(self):
     mp_methods = multiprocessing.get_all_start_methods()
@@ -201,12 +201,12 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
       num_samples = self.buffer.qsize()
     for i in range(num_samples):
       self.maybe_recharge()
-      self.sample_once()
+      self.put_one_task()
     return self
-  
-  def sample_once(self):
-    """Sample once from the stream producer buffer
-    and put it into the stream queue
+
+  def put_one_task(self):
+    """Sample one task from the stream producer buffer
+    and put it inot the task queue
     Raises:
       queue.Empty: if buffer is empty
     """
@@ -217,7 +217,11 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
   def read_stream(self, stream_info: StreamInfo) -> Any:
     return self.stream_producer.read_stream(stream_info)
 
-  def get_stream(self, block: bool=True) -> Any:
+  def get_stream(
+    self,
+    block: bool = True,
+    auto_recharge: bool = False,
+  ) -> Any:
     """Get one loaded stream and push a new tasks into stream pending
     queue.
 
@@ -231,9 +235,10 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
     # push new tasks into pending queue if
     # sample buffer is not empty
     try:
-      self.sample_once()
+      self.put_one_task()
     except queue.Empty:
-      pass
+      if auto_recharge:
+        self.maybe_recharge()
     # If task counter is not zero, that means some
     # tasks are still being processed.
     while not (self.task_counter.is_zero() or self.closed()):
