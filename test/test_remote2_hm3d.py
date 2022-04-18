@@ -18,7 +18,12 @@ OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
 ENV_ID = 'HabitatTrain-v0'
 
 def create_env(habitat_config, config):
-  env = train_env.make(ENV_ID, habitat_config, auto_stop=True)
+  env = train_env.make(
+    ENV_ID,
+    habitat_config,
+    auto_stop = True,
+    make_act_space = False
+  )
   config = OmegaConf.create(config)
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
   env = SemanticMapBuilderWrapper(

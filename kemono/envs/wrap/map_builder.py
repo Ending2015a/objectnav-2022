@@ -601,9 +601,9 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
       maps_config[map_name] = MapConfig(**map_config)
     return maps_config
 
-  def step(self, action):
+  def step(self, action, *args, **kwargs):
     # step environment
-    obs, rew, done, info = self.env.step(action)
+    obs, rew, done, info = self.env.step(action, *args, **kwargs)
     # cache agent positions
     gps = obs[self.gps_key]
     self._cached_trajectory.append((gps[1], 0, gps[0]))
@@ -611,9 +611,9 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     obs = self.get_observations(obs)
     return obs, rew, done, info
 
-  def reset(self):
+  def reset(self, *args, **kwargs):
     # reset environment
-    obs = self.env.reset()
+    obs = self.env.reset(*args, **kwargs)
     objectgoal = obs[self.objectgoal_key]
     gps = obs[self.gps_key]
     # cache agent positions
@@ -688,6 +688,8 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     return value_map
 
   def make_observation_space(self):
+    if self.env.observation_space is None:
+      return None
     obs_space = self.env.observation_space
     new_obs_space = {key: obs_space[key] for key in obs_space}
     for map_name, map_config in self.maps_config.items():

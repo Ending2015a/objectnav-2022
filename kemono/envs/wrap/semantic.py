@@ -83,14 +83,14 @@ class SemanticWrapper(gym.Wrapper):
   def semantic_mapping(self):
     return self.semap
 
-  def step(self, action):
-    obs, rew, done, info = self.env.step(action)
+  def step(self, action, *args, **kwargs):
+    obs, rew, done, info = self.env.step(action, *args, **kwargs)
     obs = self.get_observations(obs)
     info = self.get_info(obs, info)
     return obs, rew, done, info
 
-  def reset(self):
-    obs = self.env.reset()
+  def reset(self, *args, **kwargs):
+    obs = self.env.reset(*args, **kwargs)
     if self.predictor is not None:
       self.predictor.reset()
     obs = self.get_observations(obs)
@@ -98,7 +98,9 @@ class SemanticWrapper(gym.Wrapper):
 
   def make_observation_space(self):
     if self.predictor is None:
-      return self.observation_space
+      return self.env.observation_space
+    if self.env.observation_space is None:
+      return
     width = self.config.SIMULATOR.SEMANTIC_SENSOR.WIDTH
     height = self.config.SIMULATOR.SEMANTIC_SENSOR.HEIGHT
     obs_space = self.observation_space
@@ -106,7 +108,7 @@ class SemanticWrapper(gym.Wrapper):
     # raw semantic id spaces (category ids)
     seg_space = gym.spaces.Box(
       low = 0,
-      high = 41,
+      high = 39,
       shape = (height, width),
       dtype = np.int32
     )

@@ -85,14 +85,19 @@ def stream_process_worker(
   wrapped_fn: CloudpickleWrapper,
   stop_signal: multiprocessing.Event
 ):
+  ignore_errors = os.environ.get('KEMONO_SP_IGNORE_ERRORS', True)
   stream_producer = wrapped_fn.unpack()()
   while not stop_signal.is_set():
     gc.collect() # do something meaningful than sleep
     try:
       stream_info = task_queue.get(timeout=1)
-      data = stream_producer.read_stream(stream_info)
-      stream_info.data = data
-      result_queue.put(stream_info)
+      try:
+        data = stream_producer.read_stream(stream_info)
+        stream_info.data = data
+        result_queue.put(stream_info)
+      except :
+        if ignore_errors:
+          result_queue.put(None)
     except queue.Empty:
       pass
     except Exception as e:
@@ -217,6 +222,21 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
   def read_stream(self, stream_info: StreamInfo) -> Any:
     return self.stream_producer.read_stream(stream_info)
 
+  def _safe_get_data(
+    self,
+    block: bool = True,
+    auto_recharge: bool = False
+  ):
+    data = self.result_queue.get(block=block, timeout=1)
+    if data is None:
+      try:
+        self.put_one_task()
+      except queue.Empty:
+        if auto_recharge:
+          self.maybe_recharge()
+      return False, None
+    return True, data
+
   def get_stream(
     self,
     block: bool = True,
@@ -245,7 +265,9 @@ class MultiprocessStreamProducer(StreamProducerWrapper):
       gc.collect() # do something meaningful than sleep
       try:
         # Try to get buffered data in result_queue
-        data = self.result_queue.get(block=block, timeout=1)
+        res = False
+        while not res:
+          res, data = self._safe_get_data(block=block, auto_recharge=auto_recharge)
         self.task_counter.decrease()
         return data
       except queue.Empty:

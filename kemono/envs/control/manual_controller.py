@@ -1,13 +1,12 @@
 # --- built in ---
-# --- 3rd party ---]
+from typing import (
+  Callable
+)
+# --- 3rd party ---
 import cv2
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
-from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 # --- my module ---
-
-__all__ = [
-  'ManualController'
-]
+from kemono.envs.control.base_controller import BaseController
 
 FORWARD_KEY = "w"
 LEFT_KEY    = "a"
@@ -17,14 +16,19 @@ LOOK_UP     = "x"
 LOOK_DOWN   = "z"
 QUIT        = "q"
 
-class ManualController:
+class ManualController(BaseController):
   def __init__(self, *args, **kwargs):
-    pass
+    super().__init__(*args, **kwargs)
+    if self.action_map is None:
+      if hasattr(self.env, 'from_habitat_action'):
+        self.action_map = self.env.from_habitat_action
+      else:
+        self.action_map = lambda x: x
 
   def reset(self, *args, **kwargs):
     pass
 
-  def step(self):
+  def act(self, observations):
     while True:
       keystroke = cv2.waitKey(0)
       if keystroke == ord(FORWARD_KEY):
@@ -52,4 +56,4 @@ class ManualController:
         action = None
         print("INVALID KEY")
       if action is not None:
-        return action
+        return self.action_map(action)

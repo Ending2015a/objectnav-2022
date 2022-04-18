@@ -9,37 +9,38 @@ import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 import kemono
-from kemono.envs import train_env
+from kemono.envs import habitat_env
 from kemono.envs.wrap import (
   SemanticMapBuilderWrapper,
   SemanticWrapper
 )
+from kemono.envs.control import ManualController
 
-FORWARD_KEY = "w"
-LEFT_KEY    = "a"
-RIGHT_KEY   = "d"
-FINISH      = "f"
-LOOK_UP     = "x"
-LOOK_DOWN   = "z"
-QUIT        = "q"
-
-CONFIG_PATH = '/src/configs/test/test_hm3d.train.rgbd.yaml'
+CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
 OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
-ENV_ID = 'HabitatTrain-v0'
+ENV_ID = 'HabitatEnv-v0'
 
 def example():
   habitat_config = kemono.get_config(CONFIG_PATH)
-  env = train_env.make(ENV_ID, habitat_config, auto_stop=False)
+  env = habitat_env.make(
+    ENV_ID,
+    habitat_config,
+    auto_stop = False,
+    enable_pitch = True,
+    enable_stop = True
+  )
   config = OmegaConf.load(OMEGACONF_PATH)
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
   env = SemanticMapBuilderWrapper(
     env,
     **config.envs.semantic_map_builder
   )
+  controller = ManualController(env)
 
   print("Environment creation successful")
   while True:
     observations = env.reset()
+    controller.reset()
     print('Episode id: {}, scene id: {}'.format(env.current_episode.episode_id, env.current_episode.scene_id))
 
     # --- show observations ---
@@ -54,33 +55,7 @@ def example():
     count_steps = 0
     done = False
     while not done:
-      keystroke = cv2.waitKey(0)
-
-      if keystroke == ord(FORWARD_KEY):
-        action = HabitatSimActions.MOVE_FORWARD
-        print("action: FORWARD")
-      elif keystroke == ord(LEFT_KEY):
-        action = HabitatSimActions.TURN_LEFT
-        print("action: LEFT")
-      elif keystroke == ord(RIGHT_KEY):
-        action = HabitatSimActions.TURN_RIGHT
-        print("action: RIGHT")
-      elif keystroke == ord(LOOK_UP):
-        action = HabitatSimActions.LOOK_UP
-        print("action: LOOK_UP")
-      elif keystroke == ord(LOOK_DOWN):
-        action = HabitatSimActions.LOOK_DOWN
-        print("action: LOOK_DOWN")
-      elif keystroke == ord(FINISH):
-        action = HabitatSimActions.STOP
-        print("action: FINISH")
-      elif keystroke == ord(QUIT):
-        print('Exit simulator')
-        exit(0)
-      else:
-        print("INVALID KEY")
-        continue
-      
+      action = controller.act(observations)
       observations, reward, done, info = env.step(action)
       count_steps += 1
       # --- show observations ---

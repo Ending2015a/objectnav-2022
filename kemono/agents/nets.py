@@ -64,9 +64,9 @@ class AwesomeMlp(DelayedModule):
     # if nD tensor n > 2, then flatten to 2D
     orig_ndims = len(x.shape)
     batches = x.shape[:-1]
-    x = x.view(-1, x.shape[-1])
+    x = x.contiguous().view(-1, x.shape[-1])
     x = self._model(x)
-    x = x.view(*batches, x.shape[-1])
+    x = x.contiguous().view(*batches, x.shape[-1])
     return x
 
 
@@ -114,9 +114,9 @@ class AwesomeCnn(DelayedModule):
     # if nD tensor n > 4, then flatten to 4D
     orig_ndims = len(x.shape)
     batches = x.shape[:-3]
-    x = x.view(-1, *x.shape[-3:])
+    x = x.contiguous().view(-1, *x.shape[-3:])
     x = self._model(x)
-    x = x.view(*batches, x.shape[-1])
+    x = x.contiguous().view(*batches, x.shape[-1])
     return x
 
 
@@ -333,7 +333,12 @@ class AwesomeRnn(nn.Module):
     # create reset signal tensor
     if reset is None:
       reset = torch.tensor(0)
+    # expecting (b,) or (seq, b)
+    reset = torch.as_tensor(reset)
     reset = reset.type_as(x)
+    if len(reset.shape) < 3:
+      # to (b, 1) or (seq, b, 1)
+      reset = reset.unsqueeze(-1)
     seq, batch = x.shape[0:2]
     reset = torch.broadcast_to(reset, (seq, batch, 1))
     # out: sequence of rnn outputs (seq, b, dim)

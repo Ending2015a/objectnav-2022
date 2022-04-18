@@ -61,7 +61,12 @@ def example(args):
   # create configurations
   config = kemono.get_config(CONFIG_PATH)
   # create environment
-  env = train_env.make(ENV_ID, config, auto_stop=False)
+  env = train_env.make(
+    ENV_ID,
+    config,
+    auto_stop = False,
+    make_act_space = False
+  )
   env = SemanticWrapper(
     env,
     goal_mapping = GOAL_MAPPING,

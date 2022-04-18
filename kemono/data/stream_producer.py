@@ -156,9 +156,6 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
         stream_names = sorted(stream_names)
         stream_paths.extend(stream_names)
 
-    if len(stream_paths) == 0:
-      print('WARNING:Stream Producer: no stream were found')
-
     self.stream_paths = stream_paths
     self.on_load_stream_paths()
   
@@ -179,9 +176,6 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
       self._on_load_stream_paths_callbacks.append(callback)
 
   def recharge(self):
-    if (self.stream_paths is None
-        or len(self.stream_paths) == 0):
-      print('WARNING:Stream Producer: no stream were found')
     self.on_before_recharge()
     num_items = len(self.stream_paths)
     if self.shuffle:
@@ -377,4 +371,5 @@ class RlchemyDynamicStreamProducer(BaseDynamicStreamProducer):
   def read_stream(self, stream_info: StreamInfo) -> Dict[str, Any]:
     traj = rlchemy.envs.load_trajectory(stream_info.path)
     traj.pop('info', None)
+    print("Load:", stream_info.path)
     return traj

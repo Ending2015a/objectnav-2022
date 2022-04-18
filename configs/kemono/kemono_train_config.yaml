@@ -1,3 +1,6 @@
+
+habitat_config: "/src/configs/test/test_hm3d.val.rgbd.yaml"
+
 macro:
   backbone:
     net_config:
@@ -17,6 +20,7 @@ macro:
     fuse_config:
       type: mlp
       mlp_units: [1024]
+
   goal_mapping:
     0: chair
     1: bed
@@ -25,12 +29,25 @@ macro:
     4: tv_monitor
     5: sofa
 
+  log_path: "/src/logs/kemono_sac/"
+
+  seq_len: 8
+  batch_size: 4
+  num_workers: 32
+  group_size: 16
+
 
 envs:
-  auto_stop: true
+  env_id: HabitatEnv-v1
+  habitat_env:
+    auto_stop: true
+    enable_pitch: false
+    enable_stop: false
+
   semantic_wrapper:
     goal_mapping: ${macro.goal_mapping}
     predictor_name: 'gt'
+
   semantic_map_builder:
     world_config: # this is used as the base config of map projector
       map_res: 0.03
@@ -50,7 +67,7 @@ envs:
       width_offset: 150.0
       height_offset: 0.0
       fill_value: 0
-      to_global: False
+      to_global: false
       center_mode: none
     maps_config: # each map will be an observation in the observation dict
       large_map:
@@ -113,31 +130,53 @@ envs:
     goal_mapping: ${macro.goal_mapping}
     render_maps: ['large_map', 'small_map']
     enable_goals: false
+
   clean_obs:
     obs_configs:
       rgb:
+        type: image
         resize:
           width: 128
           height: 128
           mode: 'bilinear'
         channel_first: true
       large_map:
+        type: image
         resize:
           width: 128
           height: 128
+          mode: 'nearest'
         channel_first: true
       small_map:
+        type: image
         resize:
           width: 128
           height: 128
+          mode: 'nearest'
         channel_first: true
-      objectgoal: {}
+      objectgoal:
+        type: scalar
     video_config:
       image: ['rgb', 'seg_color', 'large_map']
       size: [[640, 480], [640, 480], [480, 480]]
       label: ['RGB', 'Segmentation', 'Topdown View']
       goal: 'objectgoal'
       goal_mapping: ${macro.goal_mapping}
+
+  monitor:
+    root_dir: "${macro.log_path}monitor/"
+    video: True
+    video_kwargs:
+      interval: null
+      fps: 10
+
+  trajectory_recorder:
+    interval: 1
+
+  # ray_remote_env:
+  #   num_cpus: 1
+  #   num_gpus: 1
+
 
 sac:
   runner:
@@ -155,19 +194,68 @@ sac:
     mlp_units: [256] # 1024 -> 256 -> n_actions
     skip_conn: true
     rnn_type: lstm
+  batch_size: ${macro.batch_size}
   init_entcoef: 0.5
   entropy_scale: 0.2
   policy_lr: 3.0e-4
   value_lr: 3.0e-4
   alpha_lr: 3.0e-4
+  loss_type: l2
+  huber_delta: 1.0
   tau: 0.05
+  gamma: 0.99
   n_steps: 64
-  n_gradsteps: 10
+  n_gradsteps: 16
+  train_dataset: ${train_dataset}
 
+train_dataset:
+  multiprocess:
+    num_threads: 1
+    env_vars: {}
+  stream_producer:
+    expert_stream:
+      producer:
+        data_root: "/src/logs/kemono_expert/val/trajs/"
+        glob_paths: "*.trajectory.npz"
+      manager:
+        max_to_keep: 300
+        clean_unused: false
+      zero_pad:
+        chunk_size: ${macro.seq_len}
+    policy_stream:
+      producer:
+        data_root: "${envs.monitor.root_dir}trajs/"
+        glob_paths: "*.trajectory.npz"
+      manager:
+        max_to_keep: 1500
+        clean_unused: true
+      zero_pad:
+        chunk_size: ${macro.seq_len}
+  dataset:
+    num_workers: ${macro.num_workers}
+    group_size: ${macro.group_size}
+    seq_len: ${macro.seq_len}
+    drop_remainder: false
+  sampler:
+    num_workers: ${macro.num_workers}
+    batch_size: ${macro.batch_size}
+    time_first: true
+    drop_remainder: false
 
-train_dataset: {}
+checkpoint:
+  monitor: "train/success"
+  save_last: True
+  save_top_k: 20
+  mode: max
+  every_n_epochs: 10000
+  verbose: True
 
+trainer:
+  max_epochs: 1000
+  accelerator: 'gpu'
+  devices: 1
+  default_root_dir: "${macro.log_path}"
+  sync_batchnorm: True
 
-
-
-
+ddp:
+  find_unused_parameters: true

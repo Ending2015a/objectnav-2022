@@ -1,4 +1,5 @@
 # --- built in ---
+import functools
 import collections
 from dataclasses import dataclass
 from typing import (
@@ -22,6 +23,17 @@ import gym
 from omegaconf import OmegaConf
 # --- my module ---
 from kemono.agents.nets import *
+from kemono.envs.runner import Runner
+from kemono.data.dataset import Dataset, StreamDataset
+from kemono.data import RlchemyDynamicStreamProducer
+from kemono.data.wrap import (
+  ZeroPadChunkStreamWrapper,
+  ResetMaskStreamWrapper,
+  CombinedStreamProducer,
+  MultiprocessStreamProducer
+)
+from kemono.data.callbacks import StreamManager
+from kemono.data.sampler import StreamDatasetSampler
 
 
 class CategoricalPolicyNet(DelayedModule):
@@ -172,8 +184,8 @@ class Agent(nn.Module):
     self.value_config = value
     # ---
     self.policy = None
-    self.q_value1 = None
-    self.q_value2 = None
+    self.q1_value = None
+    self.q2_value = None
     self.value = None
     self.value_tar = None
 
@@ -187,11 +199,11 @@ class Agent(nn.Module):
       n_actions = self.n_actions,
       **self.policy_config
     )
-    self.q_value1 = ValueNet(
+    self.q1_value = ValueNet(
       out_dim = self.n_actions,
       **self.value_config
     )
-    self.q_value2 = ValueNet(
+    self.q2_value = ValueNet(
       out_dim = self.n_actions,
       **self.value_config
     )
@@ -204,10 +216,12 @@ class Agent(nn.Module):
       **self.value_config
     )
     input_tensors = rlchemy.utils.input_tensor(self.observation_space)
-    self.forward_policy(input_tensors)
-    self.forward_value(input_tensors)
-    self.forward_q_values(input_tensors)
-
+    input_tensors = self.proc_observation(input_tensors)
+    self.policy(input_tensors)
+    self.q1_value(input_tensors)
+    self.q2_value(input_tensors)
+    self.value(input_tensors)
+    self.value_tar(input_tensors)
 
   def setup(self):
     self.setup_model()
@@ -223,7 +237,7 @@ class Agent(nn.Module):
       if isinstance(space, gym.spaces.Box):
         obs = rlchemy.utils.preprocess_obs(obs, space)
       return obs
-    
+
     with torch.no_grad():
       # process nestedly
       return rlchemy.utils.map_nested_tuple(
@@ -231,43 +245,6 @@ class Agent(nn.Module):
         op = preprocess_obs,
         sortkey = True
       )
-
-  def forward_policy(
-    self,
-    x: Dict[str, torch.Tensor],
-    states = None,
-    reset = None,
-    proc_obs: bool = True
-  ):
-    if proc_obs:
-      x = self.proc_observation(x)
-    dist, states, history = self.policy(x, states=states, reset=reset)
-    return dist, states, history
-
-  def forward_value(
-    self,
-    x: Dict[str, torch.Tensor],
-    states = None,
-    reset = None,
-    proc_obs: bool = True
-  ):
-    if proc_obs:
-      x = self.proc_observation(x)
-    x, states, history = self.value(x, states=states, reset=reset)
-    return x, states, history
-
-  def forward_q_values(
-    self,
-    x: Dict[str, torch.Tensor],
-    states = None,
-    reset = None,
-    proc_obs: bool = True
-  ):
-    if proc_obs:
-      x = self.proc_observation(x)
-    q1, _, _ = self.q_value1(x, states=states, reset=reset)
-    q2, _, _ = self.q_value2(x, states=states, reset=reset)
-    return q1, q2
 
   def forward(
     self,
@@ -297,17 +274,15 @@ class Agent(nn.Module):
     batch = rgb_tensor.shape[-4]
     if states is None:
       states = self.get_states(batch, device=rgb_tensor.device)
-    dist, pi_states, pi_history = self.forward_policy(
+    dist, pi_states, pi_history = self.policy(
       x,
       states = states[self.policy_key],
-      reset = reset,
-      proc_obs = False
+      reset = reset
     )
-    val, vf_states, vf_history = self.forward_value(
+    val, vf_states, vf_history = self.value(
       x,
       states = states[self.value_key],
-      reset = reset,
-      proc_obs = False
+      reset = reset
     )
     if det:
       act = dist.mode()
@@ -390,6 +365,8 @@ class SAC(pl.LightningModule):
     self.agnet = None
     self.log_alpha = None
     self.target_ent = None
+    self._train_sampler = None
+    self._train_runner = None
 
     # initialize lightning module
     self.config = OmegaConf.create(config)
@@ -427,11 +404,54 @@ class SAC(pl.LightningModule):
     entropy_scale = self.config.entropy_scale
     self.target_ent = entropy_scale * float(np.asarray(self.target_ent).item())
 
-  def setup_train(self):
-    #TODO setup stream provider
-    #TODO setup ray runner
-    pass
+  @staticmethod
+  def make_stream_producer(configs: Dict[str, Any]):
+    producers = []
+    for key, config in configs.items():
+      producer = RlchemyDynamicStreamProducer(
+        **config.producer
+      )
+      if 'manager' in config:
+        producer.register_callback(StreamManager(
+          **config.manager
+        ))
+      producer = ResetMaskStreamWrapper(producer)
+      producer = ZeroPadChunkStreamWrapper(
+        producer,
+        **config.zero_pad
+      )
+      producers.append(producer)
+    producer = CombinedStreamProducer(producers, shuffle=True)
+    return producer
 
+  def setup_train(self):
+    # setup stream producer & data sampler
+    dataset_config = self.config.train_dataset
+    producer = self.make_stream_producer(dataset_config.stream_producer)
+    if 'multiprocess' in dataset_config:
+      producer = MultiprocessStreamProducer(
+        producer,
+        functools.partial(
+          self.make_stream_producer,
+          dataset_config.stream_producer
+        ),
+        **dataset_config.multiprocess
+      )
+    dataset = StreamDataset(
+      producer,
+      **dataset_config.dataset
+    )
+    self._train_sampler = StreamDatasetSampler(
+      dataset,
+      producer,
+      **dataset_config.sampler
+    )
+    # setup environment runner
+    self._train_runner = Runner(
+      env = self.env,
+      agent = self,
+      **self.config.runner
+    )
 
   def setup(self, stage: str):
     # setup env, model, config here
@@ -442,13 +462,19 @@ class SAC(pl.LightningModule):
 
   def train_batch_fn(self):
     # sample n steps for every epoch
-    # TODO
     self._train_runner.collect(
       n_steps = self.config.n_steps
     )
     # generate n batches for every epoch
     for _ in range(self.config.n_gradsteps):
-      batch = self.sampler()
+      batch, caches = self._train_sampler.sample()
+      if caches is None:
+        states = self.get_states(
+          batch_size = self.config.batch_size
+        )
+      else:
+        states = caches['states']
+      batch['states'] = states
       yield batch
 
   def get_states(self, batch_size=1, device='cuda'):
@@ -461,8 +487,8 @@ class SAC(pl.LightningModule):
     )
     value_optim = torch.optim.Adam(
       list(self.agent.value.parameters()) +
-      list(self.agent.q_value1.parameters()) +
-      list(self.agent.q_value2.parameters()),
+      list(self.agent.q1_value.parameters()) +
+      list(self.agent.q2_value.parameters()),
       lr = self.config.value_lr
     )
     alpha_optim = torch.optim.Adam(
@@ -505,7 +531,7 @@ class SAC(pl.LightningModule):
 
   def training_step(self, batch, batch_idx):
     policy_optim, value_optim, alpha_optim = self.optimizers()
-    loss_dict, next_states = self._compute_losses(batch, batch_idx)
+    loss_dict, next_states = self._compute_losses(batch)
     pi_loss = loss_dict['pi_loss']
     vf_loss = loss_dict['vf_loss']
     q1_loss = loss_dict['q1_loss']
@@ -523,17 +549,18 @@ class SAC(pl.LightningModule):
     alpha_optim.zero_grad()
     self.manual_backward(alpha_loss)
     alpha_optim.step()
-    # TODO: update caches
-    self.sampler.update(next_states)
+    # update caches
+    self._train_sampler.cache(states=next_states)
     self.agent.update_target(self.config.tau)
+    self._train_runner.log_dict(scope='train')
     return loss_dict
 
   def train_dataloader(self):
-    # TODO stream
+    dataset = Dataset.from_generator(self.train_batch_fn)
     # set batch_size to None to enable manual batching
     return DataLoader(dataset=dataset, batch_size=None)
 
-  def _compute_losses(self, batch, states):
+  def _compute_losses(self, batch):
     """
     Jpi = alpha * p * logp - p * q
     Jq1 = 0.5 * mse(q1, rew + (1-done) * gamma * vf)
@@ -550,16 +577,18 @@ class SAC(pl.LightningModule):
     """
     # preprocess batch
     with torch.no_grad():
-      obs = self.agent.proc_observations(batch['obs'])
-      next_obs = self.agent.proc_observations(batch['next_obs'])
-    act = batch['act'].to(dtype=torch.int64).unsqueeze(-1)
-    rew = batch['rew'].to(dtype=torch.float32)
-    done = batch['done'].to(dtype=torch.float32)
-    reset = batch['reset'].to(dtype=torch.float32)
+      obs = self.agent.proc_observation(batch['obs'])
+      next_obs = self.agent.proc_observation(batch['next_obs'])
+    act = batch['act'].to(dtype=torch.int64).unsqueeze(-1) # (seq, b, 1)
+    rew = batch['rew'].to(dtype=torch.float32) # (seq, b)
+    done = batch['done'].to(dtype=torch.float32) # (seq, b)
+    reset = batch['reset'].to(dtype=torch.float32) # (seq, b)
+    mask = batch['mask'].to(dtype=torch.float32) # (seq, b)
+    states = batch['states']
+    # [(b, rec), (b, rec)]
     states_pi = states[self.agent.policy_key]
     states_vf = states[self.agent.value_key]
-    # forward networks
-    alpha = self.log_alpha.exp()
+    alpha = self.log_alpha.exp() # ()
     # forward policy
     dist, next_states_pi, _ = self.agent.policy(
       obs,
@@ -569,18 +598,20 @@ class SAC(pl.LightningModule):
     p = torch.softmax(dist.logits, dim=-1) # (seq, b, act)
     logp = torch.log(p + 1e-7) # (seq, b, act)
     # forward q values
-    q1, _, _ = self.agent.q_value1(
+    q1, _, _ = self.agent.q1_value(
       obs,
       states = states_vf,
       reset = reset
     ) # (seq, b, act)
-    q2, _, _ = self.agent.q_value2(
+    q2, _, _ = self.agent.q2_value(
       obs,
       states = states_vf,
       reset = reset
     )
     q = torch.min(q1, q2)
     # forward values
+    # next_states_vf: [(b, rec), (b, rec)]
+    # history_vf: [(seq, b, rec), (seq, b, rec)]
     vf, next_states_vf, history_vf = self.agent.value(
       obs,
       states = states_vf,
@@ -591,6 +622,7 @@ class SAC(pl.LightningModule):
     with torch.no_grad():
       # slice next states
       _slice_op = lambda x: x[0]
+      # [(b, rec), (b, rec)]
       next_1 = rlchemy.utils.map_nested(history_vf, op=_slice_op)
       next_vf, _, _ = self.agent.value_tar(
         next_obs,
@@ -598,23 +630,42 @@ class SAC(pl.LightningModule):
         reset = done
       ) # (seq, b, 1)
       next_vf = next_vf.squeeze(-1) # (seq, b)
-    # calculate policy loss
-    pi_loss = torch.mean((alpha * p * logp - p * q1.detach()).sum(dim=-1))
+    # calculate policy loss (seq, b)
+    pi_losses = (alpha.detach() * p * logp - p * q1.detach()).sum(dim=-1)
+    # note that here we take the average across all samples,
+    # including invalid samples, e.g. zero-padded samples,
+    # which contributes zero loss to the total loss,
+    # is to avoid the gradient being dominant by the valid
+    # samples, especially when there has only few valid samples,
+    # the gradient may be biased.
+    pi_loss = torch.mean(pi_losses * mask)
     # calculate alpha loss
     with torch.no_grad():
-      tar = torch.sum((p * logp + self.target_ent), dim=-1)
-    alpha_loss = -1.0 * torch.mean(alpha * tar)
+      tar = torch.sum((p * logp + self.target_ent), dim=-1) # (seq, b)
+    alpha_loss = -1.0 * torch.mean(alpha * tar * mask)
     # calculate q losses
     with torch.no_grad():
-      y = rew + (1.-done) * self.gamma * next_vf
+      y = rew + (1.-done) * self.config.gamma * next_vf
     q1 = q1.gather(-1, act).squeeze(-1) # (seq, b)
     q2 = q2.gather(-1, act).squeeze(-1) # (seq, b)
-    q1_loss = rlchemy.loss.regression(y-q1, loss_type=self.loss_type)
-    q2_loss = rlchemy.loss.regression(y-q2, loss_type=self.loss_type)
+    q1_loss = rlchemy.loss.regression(
+      (y-q1) * mask,
+      loss_type = self.config.loss_type,
+      delta = self.config.huber_delta
+    ).mean()
+    q2_loss = rlchemy.loss.regression(
+      (y-q2) * mask,
+      loss_type = self.config.loss_type,
+      delta = self.config.huber_delta
+    ).mean()
     # calculate v loss
     with torch.no_grad():
       y = torch.sum(p * q - alpha * p * logp, dim=-1) # (seq, b)
-    vf_loss = rlchemy.loss.regression(y-vf, loss_type=self.loss_type)
+    vf_loss = rlchemy.loss.regression(
+      (y-vf) * mask,
+      loss_type = self.config.loss_type,
+      delta = self.config.huber_delta
+    ).mean()
     loss_dict = {
       'pi_loss': pi_loss,
       'vf_loss': vf_loss,

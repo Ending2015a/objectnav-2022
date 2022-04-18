@@ -2,21 +2,23 @@
 from typing import Any, Optional, Dict, Deque
 import collections
 # --- 3rd party ---
+import cv2
 import numpy as np
 import gym
 import pytorch_lightning as pl
 # --- my module ---
 
+DEBUG = True
 
 class LastNStatistics:
   def __init__(self, n_episodes: int=10):
     self.n_episodes = n_episodes
-    self.lengths = collections.deque(maxlen=self.report_n_episodes)
-    self.rewards = collections.deque(maxlen=self.report_n_episodes)
-    self.spl = collections.deque(maxlen=self.report_n_episodes)
-    self.softspl = collections.deque(maxlen=self.report_n_episodes)
-    self.success = collections.deque(maxlen=self.report_n_episodes)
-    self.dist2goal = collections.deque(maxlen=self.report_n_episodes)
+    self.lengths = collections.deque(maxlen=self.n_episodes)
+    self.rewards = collections.deque(maxlen=self.n_episodes)
+    self.spl = collections.deque(maxlen=self.n_episodes)
+    self.softspl = collections.deque(maxlen=self.n_episodes)
+    self.success = collections.deque(maxlen=self.n_episodes)
+    self.dist2goal = collections.deque(maxlen=self.n_episodes)
 
   def append_metrics(self, metrics: Dict[str, float]):
     self.spl.append(metrics['spl'])
@@ -47,7 +49,6 @@ class LastNStatistics:
     )
 
 
-
 class Runner():
   def __init__(
     self,
@@ -64,7 +65,7 @@ class Runner():
 
     self._cached_obs = None
     self._cached_states = None
-    self._cached_masks = None
+    self._cached_reset = None
     self._not_reset_yet = True
 
     self.episode_lengths = None
@@ -94,7 +95,7 @@ class Runner():
     act, next_states = self.agent.predict(
       self._cached_obs,
       states = self._cached_states,
-      masks = self._cached_masks,
+      reset = self._cached_reset,
       det = False
     )
     if random:
@@ -110,12 +111,15 @@ class Runner():
     # cache rollouts
     self._cached_obs = next_obs
     self._cached_states = next_states
-    self._cached_masks = done
+    self._cached_reset = done
     self._not_reset_yet = done
     return next_obs, rew, done, info
 
   def step(self, random: bool=False):
     next_obs, rew, done, info = self._collect_step(random=random)
+    if DEBUG:
+      self.env.render('human')
+      cv2.waitKey(1)
     # make statistics
     metrics = info['metrics']
     self.episode_lengths += 1

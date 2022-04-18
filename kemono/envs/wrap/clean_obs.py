@@ -22,6 +22,7 @@ class ResizeConfig:
 
 @dataclass
 class ObsConfig:
+  type: str = 'vector'
   resize: Optional[ResizeConfig] = None
   channel_first: Optional[bool] = None
   def __post_init__(self):
@@ -40,13 +41,13 @@ class CleanObsWrapper(gym.Wrapper):
     self._cached_obs = None
     self._cached_canvas = None
 
-  def reset(self):
-    obs = self.env.reset()
+  def reset(self, *args, **kwargs):
+    obs = self.env.reset(*args, **kwargs)
     self._cached_obs = obs
     return self.get_observation(obs)
   
-  def step(self, action):
-    obs, rew, done, info = self.env.step(action)
+  def step(self, action, *args, **kwargs):
+    obs, rew, done, info = self.env.step(action, *args, **kwargs)
     self._cached_obs = obs
     return self.get_observation(obs), rew, done, info
 
@@ -56,20 +57,28 @@ class CleanObsWrapper(gym.Wrapper):
     for key in self.obs_config.keys():
       config = self.obs_config[key]
       o = obs[key]
-      if config.resize:
-        assert len(o.shape) == 3, f"Observation `{key}` must be an iamge space"
-        dtype = o.dtype
-        height = config.resize.height
-        width = config.resize.width
-        mode = config.resize.mode
-        o = resize_image(np.transpose(o, (2, 0, 1)), (height, width), mode=mode)
-        o = np.transpose(o.numpy(), (1, 2, 0)).astype(dtype)
-      if config.channel_first:
-        o = np.transpose(o, (2, 0, 1))
+      if config.type == 'image':
+        if config.resize:
+          assert len(o.shape) == 3, f"Observation `{key}` must be an iamge space"
+          dtype = o.dtype
+          height = config.resize.height
+          width = config.resize.width
+          mode = config.resize.mode
+          o = resize_image(np.transpose(o, (2, 0, 1)), (height, width), mode=mode)
+          o = np.transpose(o.numpy(), (1, 2, 0)).astype(dtype)
+        if config.channel_first:
+          o = np.transpose(o, (2, 0, 1))
+      elif config.type == 'scalar':
+        o = np.asarray(o).item()
+      elif config.type == 'vector':
+        if config.reshape:
+          o = np.asarray(o).reshape(config.reshape)
       new_obs[key] = o
     return new_obs
 
   def make_observation_space(self):
+    if self.env.observation_space is None:
+      return None
     obs_space = self.observation_space
     new_obs_spaces = {}
     for key in self.obs_config.keys():

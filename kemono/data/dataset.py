@@ -428,7 +428,6 @@ class StreamDataset(Dataset):
       # recharge stream producer
       stream_producer.maybe_recharge()
       stream = stream_producer(iterate=False)
-      print('Load:', stream.path)
       first_data = next(iter(rlchemy.utils.iter_nested(stream.data)))
       stream_length = len(first_data)
       if seq_len is None:
