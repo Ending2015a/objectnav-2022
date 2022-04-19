@@ -41,3 +41,23 @@ class Reward_v1:
     if metrics['success']:
       return 10.0
     return max(-distance_to_goal/10.0, -10.0)
+
+
+@registry.register.reward('v2')
+class Reward_v2:
+  reward_range = {-10.0, 10.0}
+  def __call__(
+    self,
+    env: HabitatEnv,
+    obs: Dict[str, Any],
+    act: int,
+    next_obs: Dict[str, Any],
+    done: bool,
+    info: Dict[str, Any]
+  ):
+    metrics = info["metrics"]
+    distance_to_goal = metrics['distance_to_goal']
+    distance_to_goal = np.clip(distance_to_goal, 0.01, 10)
+    if metrics['success']:
+      return 10.0
+    return -np.log(distance_to_goal * 10.0) / np.log(3)

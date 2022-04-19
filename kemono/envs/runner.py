@@ -24,7 +24,7 @@ class LastNStatistics:
     self.spl.append(metrics['spl'])
     self.softspl.append(metrics['softspl'])
     self.success.append(metrics['success'])
-    self.dist2goal.append(metrics['dist2goal'])
+    self.dist2goal.append(metrics['distance_to_goal'])
   
   def append_length(self, length: int):
     self.lengths.append(length)
@@ -168,6 +168,14 @@ class Runner():
     _log_dict = self.last_n_statistics.get_average_dict()
     for key, value in _log_dict.items():
       log_dict[scope_op(key)] = value
+    # log to tensorboard & prograss bar
+    agent.log_dict(
+      log_dict,
+      reduce_fx = 'mean',
+      sync_dist = True,
+      prog_bar = True
+    )
+    log_dict = {}
     for goal_id, goal_name in self.goal_mapping.items():
       _log_dict = self.goal_last_n_statistics[goal_id].get_average_dict()
       for key, value in _log_dict.items():

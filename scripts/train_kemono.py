@@ -15,6 +15,9 @@ from kemono.envs.wrap import (
   RayRemoteEnv
 )
 
+rlchemy.envs.TrajectoryRecorder.trajectory_suffix = \
+  'ep{episodes:010d}.{start_steps}-{steps}'
+
 def create_env(habitat_config, config):
   config = OmegaConf.create(config)
   # Create base env

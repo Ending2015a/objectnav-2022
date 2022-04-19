@@ -14,8 +14,8 @@ class StreamManager():
   ):
     self.max_to_keep = max_to_keep
     self.clean_unused = clean_unused
-  
-  def on_before_recharge(self, stream_producer: BaseStreamProducer):
+
+  def on_load_stream_paths(self, stream_producer: BaseStreamProducer):
     if self.max_to_keep is not None:
       self._sweep(stream_producer)
 
@@ -32,3 +32,6 @@ class StreamManager():
           os.remove(unused)
         if os.path.isdir(unused):
           shutil.rmtree(unused)
+
+
+

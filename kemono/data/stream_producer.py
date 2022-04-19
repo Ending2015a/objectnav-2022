@@ -316,11 +316,11 @@ class BaseStreamProducer(metaclass=abc.ABCMeta):
 
   def on_after_recharge(self):
     for callback in self._on_after_recharge_callbacks:
-      callback.on_before_recharge(self)
+      callback.on_after_recharge(self)
   
   def on_load_stream_paths(self):
     for callback in self._on_load_stream_paths_callbacks:
-      callback.on_before_recharge(self)
+      callback.on_load_stream_paths(self)
 
 class BaseDynamicStreamProducer(BaseStreamProducer):
   def __init__(
@@ -371,5 +371,4 @@ class RlchemyDynamicStreamProducer(BaseDynamicStreamProducer):
   def read_stream(self, stream_info: StreamInfo) -> Dict[str, Any]:
     traj = rlchemy.envs.load_trajectory(stream_info.path)
     traj.pop('info', None)
-    print("Load:", stream_info.path)
     return traj

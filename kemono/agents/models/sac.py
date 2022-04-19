@@ -32,7 +32,7 @@ from kemono.data.wrap import (
   CombinedStreamProducer,
   MultiprocessStreamProducer
 )
-from kemono.data.callbacks import StreamManager
+from kemono.data.callbacks import StreamManager, StreamDrawer
 from kemono.data.sampler import StreamDatasetSampler
 
 
@@ -405,16 +405,18 @@ class SAC(pl.LightningModule):
     self.target_ent = entropy_scale * float(np.asarray(self.target_ent).item())
 
   @staticmethod
-  def make_stream_producer(configs: Dict[str, Any]):
+  def make_stream_producer(stream_configs: Dict[str, Any]):
     producers = []
-    for key, config in configs.items():
+    for key, config in stream_configs.items():
+      callbacks = []
+      if 'manager' in config:
+        callbacks.append(StreamManager(**config.manager))
+      if 'drawer' in config:
+        callbacks.append(StreamDrawer(**config.drawer))
       producer = RlchemyDynamicStreamProducer(
+        callbacks = callbacks,
         **config.producer
       )
-      if 'manager' in config:
-        producer.register_callback(StreamManager(
-          **config.manager
-        ))
       producer = ResetMaskStreamWrapper(producer)
       producer = ZeroPadChunkStreamWrapper(
         producer,
@@ -437,6 +439,8 @@ class SAC(pl.LightningModule):
         ),
         **dataset_config.multiprocess
       )
+      if 'prefetch' in dataset_config:
+        producer.prefetch(dataset_config.prefetch)
     dataset = StreamDataset(
       producer,
       **dataset_config.dataset
@@ -552,6 +556,15 @@ class SAC(pl.LightningModule):
     # update caches
     self._train_sampler.cache(states=next_states)
     self.agent.update_target(self.config.tau)
+
+    self.log_dict({
+        f'train/{key}': value
+        for key, value in loss_dict.items()
+      },
+      on_step = True,
+      on_epoch = True,
+      sync_dist = True
+    )
     self._train_runner.log_dict(scope='train')
     return loss_dict
 

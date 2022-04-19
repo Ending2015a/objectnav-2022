@@ -1,5 +1,5 @@
 
-habitat_config: "/src/configs/test/test_hm3d.val.rgbd.yaml"
+habitat_config: "/src/configs/test/test_hm3d.train.rgbd.yaml"
 
 macro:
   backbone:
@@ -29,12 +29,12 @@ macro:
     4: tv_monitor
     5: sofa
 
-  log_path: "/src/logs/kemono_sac/"
+  log_path: "/src/logs/kemono_agent/sac/"
 
-  seq_len: 8
-  batch_size: 4
-  num_workers: 32
-  group_size: 16
+  seq_len: 32
+  batch_size: 24
+  num_workers: 128
+  group_size: 32
 
 
 envs:
@@ -204,31 +204,38 @@ sac:
   huber_delta: 1.0
   tau: 0.05
   gamma: 0.99
-  n_steps: 64
+  n_steps: 128
   n_gradsteps: 16
   train_dataset: ${train_dataset}
 
 train_dataset:
-  multiprocess:
-    num_threads: 1
-    env_vars: {}
+  # multiprocess:
+  #   num_threads: 8
+  #   env_vars: {}
+  # prefetch: ${macro.group_size}
   stream_producer:
     expert_stream:
       producer:
-        data_root: "/src/logs/kemono_expert/val/trajs/"
+        data_root: "/src/logs/kemono_expert/train/trajs/"
         glob_paths: "*.trajectory.npz"
+        shuffle: true
       manager:
-        max_to_keep: 300
+        max_to_keep: 1000
         clean_unused: false
+      drawer:
+        max_to_draw: 100
       zero_pad:
         chunk_size: ${macro.seq_len}
     policy_stream:
       producer:
         data_root: "${envs.monitor.root_dir}trajs/"
         glob_paths: "*.trajectory.npz"
+        shuffle: true
       manager:
-        max_to_keep: 1500
+        max_to_keep: 2000
         clean_unused: true
+      drawer:
+        max_to_draw: 100
       zero_pad:
         chunk_size: ${macro.seq_len}
   dataset:
@@ -245,15 +252,15 @@ train_dataset:
 checkpoint:
   monitor: "train/success"
   save_last: True
-  save_top_k: 20
+  save_top_k: 40
   mode: max
-  every_n_epochs: 10000
+  every_n_epochs: 100
   verbose: True
 
 trainer:
-  max_epochs: 1000
+  max_epochs: 1000000
   accelerator: 'gpu'
-  devices: 1
+  devices: [2]
   default_root_dir: "${macro.log_path}"
   sync_batchnorm: True
 
