@@ -1,4 +1,3 @@
-
 habitat_config: "/src/configs/test/test_hm3d.train.rgbd.yaml"
 
 macro:

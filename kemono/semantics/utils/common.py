@@ -19,7 +19,6 @@ __all__ = [
   'mpcat40_color_map_rgb',
   'mpcat40_meaningful_ids',
   'mpcat40_trivial_ids',
-  'none_for_nan',
   'evaluate'
 ]
 
@@ -121,11 +120,6 @@ def get_mpcat40_label_lists(
 
 mpcat40_meaningful_ids, mpcat40_trivial_ids = get_mpcat40_label_lists()
 # totally we have 40 classes: 39 meaningful classes + 1 trivial class
-
-def none_for_nan(value):
-  if np.any(value == np.nan):
-    return None
-  return value
 
 @contextmanager
 def evaluate(model: nn.Module):

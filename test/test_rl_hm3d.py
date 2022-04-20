@@ -31,10 +31,10 @@ def example():
   )
   config = OmegaConf.load(OMEGACONF_PATH)
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
-  env = SemanticMapBuilderWrapper(
-    env,
-    **config.envs.semantic_map_builder
-  )
+  # env = SemanticMapBuilderWrapper(
+  #   env,
+  #   **config.envs.semantic_map_builder
+  # )
   controller = ManualController(env)
 
   print("Environment creation successful")

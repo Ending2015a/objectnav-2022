@@ -519,19 +519,22 @@ class SemanticTask(pl.LightningModule):
       track_iou = []
       for index in self.track_iou_index:
         iou = utils.classIoU(out, seg, index)
-        track_iou.append(iou)
-        log_dict[f"validation/IoU_{index}"] = utils.none_for_nan(iou)
+        if np.all(~np.isnan(iou)):
+          track_iou.append(iou)
+          log_dict[f"validation/IoU_{index}"] = iou
       self.log_dict(
         log_dict,
         on_epoch = True,
         sync_dist = True
       )
-      self.log(
-        "validation/track_mIoU",
-        utils.none_for_nan(np.nanmean(track_iou)),
-        on_epoch = True,
-        sync_dist = True
-      )
+      track_miou = np.nanmean(track_iou)
+      if np.all(~np.isnan(track_miou)):
+        self.log(
+          "validation/track_mIoU",
+          track_miou,
+          on_epoch = True,
+          sync_dist = True
+        )
     # log main score
     miou = utils.mIoU(out, seg, self.config.num_classes)
     self.log(
