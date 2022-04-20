@@ -10,14 +10,15 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 # --- my module ---
 import kemono
-from kemono.envs import train_env
+from kemono.envs import habitat_env
 from kemono.envs import RedNetDatasetCollectTool
 from kemono.envs.wrap import (
   SemanticWrapper
 )
+from kemono.envs.control import ShortestPathController
 
 CONFIG_PATH = '/src/configs/test/test_hm3d.{split}.rgbd.yaml'
-ENV_ID = 'HabitatTrain-v0'
+ENV_ID = 'HabitatEnv-v0'
 
 GOAL_MAPPING = {
   0: 'chair',
@@ -27,15 +28,6 @@ GOAL_MAPPING = {
   4: 'tv_monitor',
   5: 'sofa'
 }
-
-# def select_nearest_goal(episode):
-#   init_pos = np.asarray(episode.start_position)
-#   goal_pos = np.asarray([goal.position for goal in episode.goals])
-#   goal_dist = np.linalg.norm(goal_pos - init_pos, axis=-1)
-#   goal_y_dist = np.floor(np.abs(goal_pos - init_pos))[..., 1]
-#   # Note: first sort by goal_y_dist then sort by goal_dist
-#   goal_ids = np.lexsort((goal_dist, goal_y_dist))
-#   return episode.goals[goal_ids[0]]
 
 def set_seed(seed):
   import random
@@ -61,16 +53,17 @@ def example(args):
   # create configurations
   config = kemono.get_config(CONFIG_PATH)
   # create environment
-  env = train_env.make(
+  env = habitat_env.make(
     ENV_ID,
     config,
     auto_stop = False,
-    make_act_space = False
+    enable_stop = True,
+    enable_pitch = True
   )
   env = SemanticWrapper(
     env,
     goal_mapping = GOAL_MAPPING,
-    predictor_type = 'gt',
+    predictor_name = 'gt',
     colorized = True
   )
   env = rlchemy.envs.Monitor(
@@ -84,6 +77,7 @@ def example(args):
   follower = ShortestPathFollower(
     env.sim, goal_radius, False
   )
+  controller = ShortestPathController(env, goal_radius=goal_radius)
 
   print("Start collecting data...")
   print("  Split:", split)
@@ -113,19 +107,18 @@ def example(args):
     goals = get_shuffle_goals(env.habitat_env.current_episode)
     goal_iter = iter(goals)
     goal = next(goal_iter)
+    controller.reset(goal=goal)
+    cv2.waitKey(0)
     while not done:
-      if interact:
-        key = cv2.waitKey(wait)
-        if key == ord(' '):
-          wait = (1 if wait == 0 else 0)
-      action = follower.get_next_action(goal.position)
+      action = controller.act(observations)
       if action is None:
-        action = HabitatSimActions.STOP
-      if action == HabitatSimActions.STOP:
+        action = env.from_habitat_action(HabitatSimActions.STOP)
+      if env.to_habitat_action(action) == HabitatSimActions.STOP:
         if ep_timesteps < min_ep_timesteps:
           try:
             # get next goal
             goal = next(goal_iter)
+            controller.reset(goal=goal)
             continue
           except StopIteration:
             pass

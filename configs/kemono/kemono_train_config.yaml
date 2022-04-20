@@ -85,7 +85,7 @@ envs:
         colorize:
           draw_origin: false
           draw_camera: false
-          draw_trajectory: true
+          draw_trajectory: false
           draw_goals: false
       small_map:
         type: world2local

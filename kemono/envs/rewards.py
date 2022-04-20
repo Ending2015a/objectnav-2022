@@ -103,7 +103,7 @@ class Reward_v3(BaseReward):
     prev_metrics = info['prev_metrics']
     d2g = metrics['distance_to_goal']
     prev_d2g = prev_metrics['distance_to_goal']
-    delta = np.clip(d2g - prev_d2g, -self.max_delta, self.max_delta)
+    delta = np.clip(prev_d2g - d2g, -self.max_delta, self.max_delta)
     reward = self.dlog(d2g, delta) + self.slack_reward
     if metrics['success']:
       reward += self.success_reward
