@@ -5,8 +5,9 @@ from omegaconf import OmegaConf
 from pytorch_lightning.strategies.ddp import DDPStrategy
 from habitat.config.default import get_config
 import rlchemy
+from rlchemy import registry
 # --- my module ---
-from kemono.agents.models.sac import SAC
+import kemono
 from kemono.envs import habitat_env
 from kemono.envs.wrap import (
   SemanticMapBuilderWrapper,
@@ -72,8 +73,10 @@ def main(args):
     print('Creating environments')
     env = create_env(habitat_config, config)
   # create model & trainer
-  print('Creating SAC model')
-  model = SAC(config.sac, env=env)
+  agent_name = config.agent.pop('type')
+  agent_class = registry.get.kemono_agent(agent_name)
+  print(f'Creating {agent_name} model')
+  model = agent_class(config.agent, env=env)
   # Create trainer
   print('Creating trainer')
   checkpoint_callback = pl.callbacks.ModelCheckpoint(

@@ -66,6 +66,7 @@ class _HabitatEnvCore(habitat.RLEnv):
     # ---
     # Call self.make_env to create env
     self._agent_tilt_angle = 0
+    self._prev_metrics = None
     self._cached_obs = None
     self._env = None
     self.observation_space = None
@@ -159,6 +160,7 @@ class _HabitatEnvCore(habitat.RLEnv):
     self._agent_tilt_angle = 0
     if self.has_env:
       obs = self._env.reset()
+      self._prev_metrics = self._env.get_metrics()
     obs = self.get_observation(obs)
     return obs
 
@@ -223,10 +225,15 @@ class _HabitatEnvCore(habitat.RLEnv):
   def get_info(self, obs):
     if self.has_env:
       metrics = self._env.get_metrics()
-      return {'metrics': metrics}
+      prev_metrics = self._prev_metrics
+      self._prev_metrics = metrics
+      return {
+        'metrics': metrics,
+        'prev_metrics': prev_metrics
+      }
     else:
       # empty metrics
-      return {'metrics': {}}
+      return {'metrics': {}, 'prev_metrics': {}}
 
   def render(self, mode="human"):
     if self._cached_obs is None:

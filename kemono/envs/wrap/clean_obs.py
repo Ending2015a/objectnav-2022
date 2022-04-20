@@ -25,6 +25,7 @@ class ObsConfig:
   type: str = 'vector'
   resize: Optional[ResizeConfig] = None
   channel_first: Optional[bool] = None
+  invert_color: Optional[bool] = None
   def __post_init__(self):
     if self.resize is not None:
       self.resize = ResizeConfig(**self.resize)
@@ -68,6 +69,8 @@ class CleanObsWrapper(gym.Wrapper):
           o = np.transpose(o.numpy(), (1, 2, 0)).astype(dtype)
         if config.channel_first:
           o = np.transpose(o, (2, 0, 1))
+        if config.invert_color:
+          o = 255 - o
       elif config.type == 'scalar':
         o = np.asarray(o).item()
       elif config.type == 'vector':

@@ -18,6 +18,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
 import rlchemy
+from rlchemy import registry
 from rlchemy.lib.nets import DelayedModule
 import gym
 from omegaconf import OmegaConf
@@ -235,7 +236,8 @@ class Agent(nn.Module):
       obs, space = obs_and_space
       # we only preprocess Box spaces, e.g. images, vectors
       if isinstance(space, gym.spaces.Box):
-        obs = rlchemy.utils.preprocess_obs(obs, space)
+        obs = obs.to(dtype=torch.float32) / 255.0
+        #obs = rlchemy.utils.preprocess_obs(obs, space)
       return obs
 
     with torch.no_grad():
@@ -349,7 +351,8 @@ class Agent(nn.Module):
     src = list(self.value.parameters())
     rlchemy.utils.soft_update(tar, src, tau=tau)
 
-class SAC(pl.LightningModule):
+@registry.register.kemono_agent('sac1')
+class SAC1(pl.LightningModule):
   def __init__(
     self,
     config: Dict[str, Any],
@@ -613,12 +616,12 @@ class SAC(pl.LightningModule):
     # forward q values
     q1, _, _ = self.agent.q1_value(
       obs,
-      states = states_vf,
+      states = None, #state_vf
       reset = reset
     ) # (seq, b, act)
     q2, _, _ = self.agent.q2_value(
       obs,
-      states = states_vf,
+      states = None, #state_vf
       reset = reset
     )
     q = torch.min(q1, q2)
@@ -636,26 +639,27 @@ class SAC(pl.LightningModule):
       # slice next states
       _slice_op = lambda x: x[0]
       # [(b, rec), (b, rec)]
-      next_1 = rlchemy.utils.map_nested(history_vf, op=_slice_op)
+      next_0 = rlchemy.utils.map_nested(history_vf, op=_slice_op)
       next_vf, _, _ = self.agent.value_tar(
         next_obs,
-        states = next_1,
+        states = next_0,
         reset = done
       ) # (seq, b, 1)
       next_vf = next_vf.squeeze(-1) # (seq, b)
     # calculate policy loss (seq, b)
-    pi_losses = (alpha.detach() * p * logp - p * q1.detach()).sum(dim=-1)
+    _p = logp.exp()
+    pi_losses = (alpha.detach() * _p * logp - _p * q1.detach()).sum(dim=-1)
     # note that here we take the average across all samples,
     # including invalid samples, e.g. zero-padded samples,
     # which contributes zero loss to the total loss,
     # is to avoid the gradient being dominant by the valid
-    # samples, especially when there has only few valid samples,
+    # samples, especially when there has only few valid samples
     # the gradient may be biased.
     pi_loss = torch.mean(pi_losses * mask)
     # calculate alpha loss
     with torch.no_grad():
-      tar = torch.sum((p * logp + self.target_ent), dim=-1) # (seq, b)
-    alpha_loss = -1.0 * torch.mean(alpha * tar * mask)
+      tar = torch.sum((logp.exp() * logp + self.target_ent), dim=-1) # (seq, b)
+    alpha_loss = -1.0 * torch.mean(self.log_alpha * tar * mask)
     # calculate q losses
     with torch.no_grad():
       y = rew + (1.-done) * self.config.gamma * next_vf
@@ -673,7 +677,8 @@ class SAC(pl.LightningModule):
     ).mean()
     # calculate v loss
     with torch.no_grad():
-      y = torch.sum(p * q - alpha * p * logp, dim=-1) # (seq, b)
+      _p = logp.exp()
+      y = torch.sum(_p * q - alpha * _p * logp, dim=-1) # (seq, b)
     vf_loss = rlchemy.loss.regression(
       (y-vf) * mask,
       loss_type = self.config.loss_type,
