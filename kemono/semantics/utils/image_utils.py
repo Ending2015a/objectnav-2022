@@ -229,8 +229,7 @@ class RandomTransformState:
     opts = random.choices(options, k=k)
     kwargs = {}
     for opt in opts:
-      kwargs[opt.value] = self_dict[opt.value]
-      #self._generate_random_value(opt)
+      kwargs[opt.value] = self._generate_random_value(opt)
     return RandomTransformState(
       img_size = self.img_size,
       random_rate = self.random_rate,
@@ -246,20 +245,20 @@ class RandomTransformState:
     ]
     return options
 
-  # def _generate_random_value(self, opt):
-  #   self_dict = dataclasses.asdict(self)
-  #   opt_str = opt.value
-  #   if opt is AugmentType.crop_rate:
-  #     return (
-  #       np.random.uniform(high=self.crop_rate[0]),
-  #       np.random.uniform(high=self.crop_rate[1])
-  #     )
-  #   elif opt is AugmentType.hflip or opt is AugmentType.vflip:
-  #     # random bool
-  #     return np.random.randint(2, dtype=bool)
-  #   else:
-  #     v = np.abs(self_dict[opt_str])
-  #     return np.random.uniform(-v, v)
+  def _generate_random_value(self, opt):
+    self_dict = dataclasses.asdict(self)
+    opt_str = opt.value
+    if opt is AugmentType.crop_rate:
+      return (
+        np.random.uniform(high=self.crop_rate[0]),
+        np.random.uniform(high=self.crop_rate[1])
+      )
+    elif opt is AugmentType.hflip or opt is AugmentType.vflip:
+      # random bool
+      return np.random.randint(2, dtype=bool)
+    else:
+      v = np.abs(self_dict[opt_str])
+      return np.random.uniform(-v, v)
 
   def apply(
     self,
