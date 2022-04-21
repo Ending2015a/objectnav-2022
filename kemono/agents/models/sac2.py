@@ -36,7 +36,6 @@ from kemono.data.wrap import (
 from kemono.data.callbacks import StreamManager, StreamDrawer
 from kemono.data.sampler import StreamDatasetSampler
 
-
 class CategoricalPolicyNet(DelayedModule):
   def __init__(
     self,
@@ -208,21 +207,25 @@ class Agent(nn.Module):
       out_dim = self.n_actions,
       **self.value_config
     )
-    self.value = ValueNet(
-      out_dim = 1,
+    self.q1_value_tar = ValueNet(
+      out_dim = self.n_actions,
       **self.value_config
     )
-    self.value_tar = ValueNet(
-      out_dim = 1,
+    self.q2_value_tar = ValueNet(
+      out_dim = self.n_actions,
       **self.value_config
     )
+    for param in self.q1_value_tar.parameters():
+      param.requires_grad = False
+    for param in self.q2_value_tar.parameters():
+      param.requires_grad = False
     input_tensors = rlchemy.utils.input_tensor(self.observation_space)
     input_tensors = self.proc_observation(input_tensors)
     self.policy(input_tensors)
     self.q1_value(input_tensors)
     self.q2_value(input_tensors)
-    self.value(input_tensors)
-    self.value_tar(input_tensors)
+    self.q1_value_tar(input_tensors)
+    self.q2_value_tar(input_tensors)
 
   def setup(self):
     self.setup_model()
@@ -280,7 +283,7 @@ class Agent(nn.Module):
       states = states[self.policy_key],
       reset = reset
     )
-    val, vf_states, vf_history = self.value(
+    val, vf_states, vf_history = self.q1_value(
       x,
       states = states[self.value_key],
       reset = reset
@@ -297,7 +300,7 @@ class Agent(nn.Module):
       self.policy_key: pi_history,
       self.value_key: vf_history
     }
-    return act, states, val, history
+    return act, states, history
 
   @torch.no_grad()
   def _predict(
@@ -346,12 +349,19 @@ class Agent(nn.Module):
     }
 
   def update_target(self, tau=1.0):
-    tar = list(self.value_tar.parameters())
-    src = list(self.value.parameters())
-    rlchemy.utils.soft_update(tar, src, tau=tau)
+    rlchemy.utils.soft_update(
+      self.q1_value_tar.parameters(),
+      self.q1_value.parameters(),
+      tau = tau
+    )
+    rlchemy.utils.soft_update(
+      self.q2_value_tar.parameters(),
+      self.q2_value.parameters(),
+      tau = tau
+    )
 
-@registry.register.kemono_agent('sac1')
-class SAC1(pl.LightningModule):
+@registry.register.kemono_agent('sac2')
+class SAC2(pl.LightningModule):
   def __init__(
     self,
     config: Dict[str, Any],
@@ -494,7 +504,6 @@ class SAC1(pl.LightningModule):
       lr = self.config.policy_lr
     )
     value_optim = torch.optim.Adam(
-      list(self.agent.value.parameters()) +
       list(self.agent.q1_value.parameters()) +
       list(self.agent.q2_value.parameters()),
       lr = self.config.value_lr
@@ -541,7 +550,6 @@ class SAC1(pl.LightningModule):
     policy_optim, value_optim, alpha_optim = self.optimizers()
     loss_dict, next_states = self._compute_losses(batch)
     pi_loss = loss_dict['pi_loss']
-    vf_loss = loss_dict['vf_loss']
     q1_loss = loss_dict['q1_loss']
     q2_loss = loss_dict['q2_loss']
     alpha_loss = loss_dict['alpha_loss']
@@ -551,7 +559,7 @@ class SAC1(pl.LightningModule):
     policy_optim.step()
     # update value, q-values
     value_optim.zero_grad()
-    self.manual_backward(vf_loss+q1_loss+q2_loss)
+    self.manual_backward(q1_loss+q2_loss)
     value_optim.step()
     # update alpha
     if self.learn_alpha:
@@ -577,6 +585,40 @@ class SAC1(pl.LightningModule):
     dataset = Dataset.from_generator(self.train_batch_fn)
     # set batch_size to None to enable manual batching
     return DataLoader(dataset=dataset, batch_size=None)
+
+  def _compute_target_value(
+    self,
+    next_q,
+    next_logp,
+    rew,
+    done
+  ):
+    """Compute target values
+    SAC:
+      V = E_a'~pi[Q(s', a') - alpha * log pi(a'|s')]
+    
+    Soft Q:
+      V = logsumexp_a'(Q(s', a')/alpha) * alpha
+
+    Args:
+      next_q (torch.Tensor): Q values of next steps (seq, b, act)
+      next_logp (torch.Tensor): Log probability of next steps (seq, b, act)
+      rew (torch.Tensor): reward (seq, b)
+      done (torch.Tensor): done (seq, b)
+
+    Returns:
+      target values (seq, b)
+    """
+    with torch.no_grad():
+      alpha = self.log_alpha.exp()
+      if self.config.value_estimate == 'sac':
+        next_p = next_logp.exp()
+        next_vf = next_q - alpha * next_logp
+        next_vf = torch.sum(next_p * next_vf, dim=-1) # (seq, b)
+      elif self.config.value_estimate == 'softq':
+        next_vf = alpha * torch.logsumexp(next_q/alpha, dim=-1) # (seq, b)
+      y = rew + (1.-done) * self.config.gamma * next_vf
+    return y
 
   def _compute_losses(self, batch):
     """
@@ -606,9 +648,8 @@ class SAC1(pl.LightningModule):
     # [(b, rec), (b, rec)]
     states_pi = states[self.agent.policy_key]
     states_vf = states[self.agent.value_key]
-    alpha = self.log_alpha.exp() # ()
     # forward policy
-    dist, next_states_pi, _ = self.agent.policy(
+    dist, next_states_pi, history_pi = self.agent.policy(
       obs,
       states = states_pi,
       reset = reset
@@ -616,40 +657,47 @@ class SAC1(pl.LightningModule):
     logp = dist.log_probs() # (seq, b, act)
     p = torch.exp(logp) # (seq, b, act)
     # forward q values
-    q1, _, _ = self.agent.q1_value(
+    q1, next_states_vf, history_q1 = self.agent.q1_value(
       obs,
-      states = None, #state_vf
+      states = states_vf
       reset = reset
     ) # (seq, b, act)
-    q2, _, _ = self.agent.q2_value(
+    q2, _, history_q2 = self.agent.q2_value(
       obs,
-      states = None, #state_vf
+      states = states_vf
       reset = reset
-    )
+    ) # (seq, b, act)
     q = torch.min(q1, q2)
-    # forward values
-    # next_states_vf: [(b, rec), (b, rec)]
-    # history_vf: [(seq, b, rec), (seq, b, rec)]
-    vf, next_states_vf, history_vf = self.agent.value(
-      obs,
-      states = states_vf,
-      reset = reset
-    )
-    vf = vf.squeeze(-1) # (seq, b)
-    # forward target values
+    # forward target values and policies
     with torch.no_grad():
       # slice next states
       _slice_op = lambda x: x[0]
       # [(b, rec), (b, rec)]
-      next_0 = rlchemy.utils.map_nested(history_vf, op=_slice_op)
-      next_vf, _, _ = self.agent.value_tar(
+      # forward target values
+      next_0 = rlchemy.utils.map_nested(history_q1, op=_slice_op)
+      next_q1, _, _ = self.agent.q1_value_tar(
         next_obs,
         states = next_0,
         reset = done
-      ) # (seq, b, 1)
-      next_vf = next_vf.squeeze(-1) # (seq, b)
-    # calculate policy loss (seq, b)
-    pi_losses = (alpha.detach() * p * logp - p * q1.detach()).sum(dim=-1)
+      ) # (seq, b, act)
+      next_0 = rlchemy.utils.map_nested(history_q2, op=_slice_op)
+      next_q2, _, _ = self.agent.q2_value_tar(
+        next_obs,
+        states = next_0,
+        reset = done
+      ) # (seq, b, act)
+      next_q = torch.min(next_q1, next_q2)
+      # forward target policies
+      next_0 = rlchemy.utils.map_nested(history_pi, op=_slice_op)
+      next_dist, _, _ = self.agent.policy(
+        next_obs,
+        states = next_0,
+        reset = done
+      )
+      next_logp = next_dist.log_probs() # (seq, b, act)
+    # calculate policy loss
+    alpha = self.log_alpha.exp().detach()
+    pi_losses = (alpha * p * (logp - q.detach())).sum(dim=-1)
     # note that here we take the average across all samples,
     # including invalid samples, e.g. zero-padded samples,
     # which contributes zero loss to the total loss,
@@ -662,8 +710,7 @@ class SAC1(pl.LightningModule):
       tar = torch.sum((p * logp + self.target_ent), dim=-1) # (seq, b)
     alpha_loss = -1.0 * torch.mean(self.log_alpha * tar * mask)
     # calculate q losses
-    with torch.no_grad():
-      y = rew + (1.-done) * self.config.gamma * next_vf
+    y = self._compute_target_value(next_q, next_logp, rew, done)
     q1 = q1.gather(-1, act).squeeze(-1) # (seq, b)
     q2 = q2.gather(-1, act).squeeze(-1) # (seq, b)
     q1_loss = rlchemy.loss.regression(
@@ -676,21 +723,12 @@ class SAC1(pl.LightningModule):
       loss_type = self.config.loss_type,
       delta = self.config.huber_delta
     ).mean()
-    # calculate v loss
-    with torch.no_grad():
-      y = torch.sum(p * q - alpha * p * logp, dim=-1) # (seq, b)
-    vf_loss = rlchemy.loss.regression(
-      (y-vf) * mask,
-      loss_type = self.config.loss_type,
-      delta = self.config.huber_delta
-    ).mean()
     with torch.no_grad():
       # additional informations to logging
       entropy = -1.0 * torch.sum(p * logp, dim=-1).mean()
       alpha = self.log_alpha.exp()
     loss_dict = {
       'pi_loss': pi_loss,
-      'vf_loss': vf_loss,
       'q1_loss': q1_loss,
       'q2_loss': q2_loss,
       'alpha_loss': alpha_loss,
