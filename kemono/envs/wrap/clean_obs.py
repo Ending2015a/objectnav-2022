@@ -132,7 +132,7 @@ class CleanObsWrapper(gym.Wrapper):
         if idx == 0:
           label = label + f' (Goal: {goal_name})'
         image = cv2.putText(image, label, (70, 70), cv2.FONT_HERSHEY_TRIPLEX,
-          1.3, (0, 0, 0), 1, cv2.LINE_AA)
+          0.65, (0, 0, 0), 1, cv2.LINE_AA)
         canvas.append(image)
       canvas = np.concatenate(canvas, axis=1)
       self._cached_canvas = canvas

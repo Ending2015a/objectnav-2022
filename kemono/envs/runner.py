@@ -237,7 +237,6 @@ class VecRunner(Runner):
     next_obs, rew, dones, infos = self._collect_step(random=random)
     if DEBUG:
       self.env.render('human')
-      cv2.waitKey(1)
     # update statistics
     self.episode_lengths += 1
     self.episode_rewards += rew

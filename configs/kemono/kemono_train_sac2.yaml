@@ -194,9 +194,9 @@ envs:
     interval: 1
 
   vec_ray_remote:
-    n_envs: 4
+    n_envs: 2
     num_cpus: 1
-    num_gpus: 0.5
+    num_gpus: 1
 
 agent:
   type: ${macro.agent_type}
@@ -227,7 +227,7 @@ agent:
   huber_delta: 0.001
   tau: 0.005
   gamma: 0.98
-  warmup_steps: 2500
+  warmup_steps: 5000
   n_steps: 32
   n_gradsteps: 32
   train_dataset: ${train_dataset}
