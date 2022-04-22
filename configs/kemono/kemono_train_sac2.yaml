@@ -6,9 +6,9 @@ macro:
       rgb:
         type: cnn
         mlp_units: [512]
-      large_map:
-        type: cnn
-        mlp_units: [512]
+      # large_map:
+      #   type: cnn
+      #   mlp_units: [512]
       small_map:
         type: cnn
         mlp_units: [512]
@@ -86,23 +86,23 @@ envs:
           draw_origin: true
           draw_camera: true
           draw_trajectory: true
-          draw_goals: false
-      large_map:
-        type: world2local # can be world, local, world2local
-        crop:
-          center: camera # can be camera, origin
-          width: 600
-          height: 600
-        smooth:
-          dilate_size: 5
-          dilate_iter: 2
-          erode_size: 5
-          erode_iter: 1
-        colorize:
-          draw_origin: false
-          draw_camera: false
-          draw_trajectory: false
-          draw_goals: false
+          draw_goals: true
+      # large_map:
+      #   type: world2local # can be world, local, world2local
+      #   crop:
+      #     center: camera # can be camera, origin
+      #     width: 600
+      #     height: 600
+      #   smooth:
+      #     dilate_size: 5
+      #     dilate_iter: 2
+      #     erode_size: 5
+      #     erode_iter: 1
+      #   colorize:
+      #     draw_origin: false
+      #     draw_camera: false
+      #     draw_trajectory: false
+      #     draw_goals: false
       small_map:
         type: world2local
         crop:
@@ -158,14 +158,14 @@ envs:
           mode: 'bilinear'
         channel_first: true
         invert_color: false
-      large_map:
-        type: image
-        resize:
-          width: 128
-          height: 128
-          mode: 'nearest'
-        channel_first: true
-        invert_color: true
+      # large_map:
+      #   type: image
+      #   resize:
+      #     width: 128
+      #     height: 128
+      #     mode: 'nearest'
+      #   channel_first: true
+      #   invert_color: true
       small_map:
         type: image
         resize:
@@ -178,7 +178,7 @@ envs:
         type: scalar
     video_config:
       image: ['rgb', 'seg_color', 'video_map']
-      size: [[640, 480], [640, 480], [480, 480]]
+      size: [[320, 240], [320, 240], [240, 240]]
       label: ['RGB', 'Segmentation', 'Topdown View']
       goal: 'objectgoal'
       goal_mapping: ${macro.goal_mapping}
@@ -193,9 +193,10 @@ envs:
   trajectory_recorder:
     interval: 1
 
-  # ray_remote_env:
-  #   num_cpus: 1
-  #   num_gpus: 1
+  vec_ray_remote:
+    n_envs: 4
+    num_cpus: 1
+    num_gpus: 0.5
 
 agent:
   type: ${macro.agent_type}
@@ -222,10 +223,11 @@ agent:
   policy_lr: 3.0e-4
   value_lr: 3.0e-4
   alpha_lr: 3.0e-4
-  loss_type: l2
-  huber_delta: 1.0
+  loss_type: huber
+  huber_delta: 0.001
   tau: 0.005
   gamma: 0.98
+  warmup_steps: 2500
   n_steps: 32
   n_gradsteps: 32
   train_dataset: ${train_dataset}
@@ -236,18 +238,18 @@ train_dataset:
   #   env_vars: {}
   # prefetch: ${macro.group_size}
   stream_producer:
-    expert_stream:
-      producer:
-        data_root: "/src/logs/kemono_expert/${macro.env_id}/train/trajs/"
-        glob_paths: "*.trajectory.npz"
-        shuffle: true
-      manager:
-        max_to_keep: 2000
-        clean_unused: false
-      drawer:
-        max_to_draw: 500
-      zero_pad:
-        chunk_size: ${macro.seq_len}
+    # expert_stream:
+    #   producer:
+    #     data_root: "/src/logs/kemono_expert/${macro.env_id}/train/trajs/"
+    #     glob_paths: "*.trajectory.npz"
+    #     shuffle: true
+    #   manager:
+    #     max_to_keep: 2000
+    #     clean_unused: false
+    #   drawer:
+    #     max_to_draw: 500
+    #   zero_pad:
+    #     chunk_size: ${macro.seq_len}
     policy_stream:
       producer:
         data_root: "${envs.monitor.root_dir}trajs/"

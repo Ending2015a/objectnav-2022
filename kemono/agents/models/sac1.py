@@ -455,7 +455,11 @@ class SAC1(pl.LightningModule):
       **dataset_config.sampler
     )
     # setup environment runner
-    self._train_runner = Runner(
+    if hasattr(self.env, 'n_envs'):
+      runner_class = VecRunner
+    else:
+      runner_class = Runner
+    self._train_runner = runner_class(
       env = self.env,
       agent = self,
       **self.config.runner
@@ -471,7 +475,8 @@ class SAC1(pl.LightningModule):
   def train_batch_fn(self):
     # sample n steps for every epoch
     self._train_runner.collect(
-      n_steps = self.config.n_steps
+      n_steps = self.config.n_steps,
+      random = True
     )
     # generate n batches for every epoch
     for _ in range(self.config.n_gradsteps):

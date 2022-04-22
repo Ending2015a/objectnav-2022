@@ -128,7 +128,7 @@ class CleanObsWrapper(gym.Wrapper):
         image = self._cached_obs[key]
         image = cv2.resize(image, size, cv2.INTER_NEAREST)
         image = np.pad(image, ((2, 2), (2, 2), (0, 0)), constant_values=100)
-        image = np.pad(image, ((100, 30), (30, 30), (0,0)), constant_values=255)
+        image = np.pad(image, ((100, 20), (20, 20), (0,0)), constant_values=255)
         if idx == 0:
           label = label + f' (Goal: {goal_name})'
         image = cv2.putText(image, label, (70, 70), cv2.FONT_HERSHEY_TRIPLEX,

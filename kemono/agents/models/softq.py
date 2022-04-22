@@ -368,7 +368,11 @@ class SoftQ(pl.LightningModule):
       **dataset_config.sampler
     )
     # setup environment runner
-    self._train_runner = Runner(
+    if hasattr(self.env, 'n_envs'):
+      runner_class = VecRunner
+    else:
+      runner_class = Runner
+    self._train_runner = runner_class(
       env = self.env,
       agent = self,
       **self.config.runner

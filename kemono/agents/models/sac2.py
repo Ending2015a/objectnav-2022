@@ -24,7 +24,7 @@ import gym
 from omegaconf import OmegaConf
 # --- my module ---
 from kemono.agents.nets import *
-from kemono.envs.runner import Runner
+from kemono.envs.runner import Runner, VecRunner
 from kemono.data.dataset import Dataset, StreamDataset
 from kemono.data import RlchemyDynamicStreamProducer
 from kemono.data.wrap import (
@@ -465,7 +465,11 @@ class SAC2(pl.LightningModule):
       **dataset_config.sampler
     )
     # setup environment runner
-    self._train_runner = Runner(
+    if hasattr(self.env, 'n_envs'):
+      runner_class = VecRunner
+    else:
+      runner_class = Runner
+    self._train_runner = runner_class(
       env = self.env,
       agent = self,
       **self.config.runner
@@ -479,6 +483,10 @@ class SAC2(pl.LightningModule):
       self.setup_train()
 
   def train_batch_fn(self):
+    if self._train_runner.total_steps < self.config.warmup_steps:
+      self._train_runner.collect(
+        n_steps = self.config.warmup_steps
+      )
     # sample n steps for every epoch
     self._train_runner.collect(
       n_steps = self.config.n_steps
@@ -725,14 +733,18 @@ class SAC2(pl.LightningModule):
     ).mean()
     with torch.no_grad():
       # additional informations to logging
-      entropy = -1.0 * torch.sum(p * logp, dim=-1).mean()
+      entropy_pi = -1.0 * torch.sum(p * logp, dim=-1).mean()
+      logq = q - torch.logsumexp(q, dim=-1, keepdim=True)
+      q = torch.exp(logq)
+      entropy_vf = -1.0 * torch.sum(q * logq, dim=-1).mean()
       alpha = self.log_alpha.exp()
     loss_dict = {
       'pi_loss': pi_loss,
       'q1_loss': q1_loss,
       'q2_loss': q2_loss,
       'alpha_loss': alpha_loss,
-      'entropy': entropy,
+      'entropy_pi': entropy_pi,
+      'entropy_vf': entropy_vf,
       'alpha': alpha
     }
     next_states = {

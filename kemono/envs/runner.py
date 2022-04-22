@@ -57,8 +57,8 @@ class Runner():
     goal_mapping: Dict[int, str],
     report_n_episodes: int = 10,
   ):
-    assert isinstance(env, gym.Env)
     self.env = env
+    self.n_envs = 1
     self.agent = agent
     self.goal_mapping = goal_mapping
     self.report_n_episodes = report_n_episodes
@@ -72,6 +72,7 @@ class Runner():
     self.episode_rewards = None
     self.completed_episodes = 0
     self.total_timesteps = 0
+    self.total_steps = 0
     self.last_n_statistics = LastNStatistics(self.report_n_episodes)
     # per goal statistics
     self.goal_last_n_statistics = [
@@ -85,8 +86,8 @@ class Runner():
 
   def reset(self):
     self._cached_obs = self.env.reset()
-    self._cached_states = self.agent.get_states(batch_size=1)
-    self._cached_makes = True
+    self._cached_states = self.agent.get_states(batch_size=self.n_envs)
+    self._cached_reset = True
     self.reset_statistics()
     self._not_reset_yet = False
 
@@ -99,7 +100,7 @@ class Runner():
       det = False
     )
     if random:
-      act = np.asarray(self.env.action_spaces.sample())
+      act = np.asarray(self.env.action_space.sample())
     return act, next_states
 
   def _collect_step(self, random: bool = False):
@@ -112,7 +113,6 @@ class Runner():
     self._cached_obs = next_obs
     self._cached_states = next_states
     self._cached_reset = done
-    self._not_reset_yet = done
     return next_obs, rew, done, info
 
   def step(self, random: bool=False):
@@ -121,30 +121,38 @@ class Runner():
       self.env.render('human')
       cv2.waitKey(1)
     # make statistics
-    metrics = info['metrics']
     self.episode_lengths += 1
     self.episode_rewards += rew
     self.total_timesteps += 1
+    self.total_steps += 1
     if done:
+      metrics = info['metrics']
       objectgoal = np.asarray(next_obs['objectgoal']).item()
+      length = self.episode_lengths
+      reward = self.episode_rewards
       self._update_last_n_statistics(
-        self.last_n_statistics, metrics
+        self.last_n_statistics, metrics, length, reward
       )
       # update per goal statistics
       self._update_last_n_statistics(
-        self.goal_last_n_statistics[objectgoal], metrics
+        self.goal_last_n_statistics[objectgoal],
+        metrics, length, reward
       )
       self.completed_episodes += 1
+      self.episode_lengths = 0
+      self.episode_rewards = 0
       # the statistics are reset in the `self.reset()`
     return next_obs, rew, done, info
 
   def _update_last_n_statistics(
     self,
     last_n: LastNStatistics,
-    metrics: Dict[str, float]
+    metrics: Dict[str, float],
+    length: int,
+    reward: float
   ):
-    last_n.append_length(self.episode_lengths)
-    last_n.append_reward(self.episode_rewards)
+    last_n.append_length(length)
+    last_n.append_reward(reward)
     last_n.append_metrics(metrics)
 
   def collect(
@@ -188,8 +196,69 @@ class Runner():
     )
     agent.log_dict({
         scope_op('completed_episodes'): self.completed_episodes,
-        scope_op('total_timesteps'): self.total_timesteps
+        scope_op('total_timesteps'): self.total_timesteps,
+        scope_op('total_steps'): self.total_steps
       },
       reduce_fx = 'sum',
       sync_dist = True
     )
+
+
+class VecRunner(Runner):
+  def __init__(
+    self,
+    env: gym.Env,
+    agent,
+    goal_mapping: Dict[int, str],
+    report_n_episodes: int = 10
+  ):
+    super().__init__(env, agent, goal_mapping, report_n_episodes)
+    self.n_envs = env.n_envs
+
+  def reset_statistics(self):
+    self.episode_lengths = np.zeros((self.n_envs,), dtype=np.int64)
+    self.episode_rewards = np.zeros((self.n_envs,), dtype=np.float64)
+
+  def _sample_action(self, random: bool=False):
+    # random sample actions
+    act, next_states = self.agent.predict(
+      self._cached_obs,
+      states = self._cached_states,
+      reset = self._cached_reset,
+      det = False
+    )
+    if random:
+      act = np.asarray(
+        [self.env.action_space.sample() for i in range(self.n_envs)]
+      )
+    return act, next_states
+
+  def step(self, random: bool=False):
+    next_obs, rew, dones, infos = self._collect_step(random=random)
+    if DEBUG:
+      self.env.render('human')
+      cv2.waitKey(1)
+    # update statistics
+    self.episode_lengths += 1
+    self.episode_rewards += rew
+    self.total_timesteps += self.n_envs
+    self.total_steps += 1
+    for idx, (done, info) in enumerate(zip(dones, infos)):
+      if done:
+        metrics = info['metrics']
+        objectgoal = np.asarray(next_obs['objectgoal'][idx]).item()
+        length = self.episode_lengths[idx]
+        reward = self.episode_rewards[idx]
+        self._update_last_n_statistics(
+          self.last_n_statistics, metrics, length, reward
+        )
+        # update per goal statistics
+        self._update_last_n_statistics(
+          self.goal_last_n_statistics[objectgoal],
+          metrics, length, reward
+        )
+        self.completed_episodes += 1
+        # reset statistics
+        self.episode_lengths[idx] = 0
+        self.episode_rewards[idx] = 0
+    return next_obs, rew, done, info

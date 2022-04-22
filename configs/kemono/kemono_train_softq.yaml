@@ -162,7 +162,7 @@ envs:
         type: scalar
     video_config:
       image: ['rgb', 'seg_color', 'large_map']
-      size: [[640, 480], [640, 480], [480, 480]]
+      size: [[320, 240], [320, 240], [240, 240]]
       label: ['RGB', 'Segmentation', 'Topdown View']
       goal: 'objectgoal'
       goal_mapping: ${macro.goal_mapping}

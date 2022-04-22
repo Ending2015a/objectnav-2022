@@ -13,13 +13,15 @@ from kemono.envs.wrap import (
   SemanticMapBuilderWrapper,
   SemanticWrapper,
   CleanObsWrapper,
-  RayRemoteEnv
+  AutoResetWrapper,
+  VecRayRemoteEnv,
 )
 
-rlchemy.envs.TrajectoryRecorder.trajectory_suffix = \
-  'ep{episodes:010d}.{start_steps}-{steps}'
-
-def create_env(habitat_config, config):
+def create_env(habitat_config, config, index=None):
+  if index is not None:
+    habitat_config.defrost()
+    habitat_config.SEED = habitat_config.SEED + index
+    habitat_config.freeze()
   config = OmegaConf.create(config)
   # Create base env
   env = habitat_env.make(
@@ -39,14 +41,20 @@ def create_env(habitat_config, config):
     env,
     **config.envs.clean_obs
   )
+  # Monitor group
   env = rlchemy.envs.Monitor(
     env,
     **config.envs.monitor
   )
+  rlchemy.envs.TrajectoryRecorder.trajectory_suffix = \
+    "ep{episodes:010d}.{start_steps}-{steps}-" + f"id{index}"
   env.add_tool(rlchemy.envs.TrajectoryRecorder(
     **config.envs.trajectory_recorder
   ))
+  # auto reset
+  env = AutoResetWrapper(env)
   return env
+
 
 def main(args):
   # Load OmegaConf configurations
@@ -58,20 +66,18 @@ def main(args):
   OmegaConf.resolve(config)
   # Load habitat configurations
   habitat_config = get_config(config.habitat_config)
-  # finetune configurations (change seeds...etc)
-  # habitat_config.SEED = 10
-  # habitat_config.ENVIRONMENT.ITERATOR_OPTIONS.MAX_SCENE_REPEAT_EPISODES = 5
   # create env
-  if 'ray_remote_env' in config.envs:
-    print('Creating remote environments')
-    env = RayRemoteEnv(
+  if 'vec_ray_remote' in config.envs:
+    print('Creaing VecRayRemoteEnv environment')
+    kemono.utils.init_ray()
+    env = VecRayRemoteEnv(
       create_env,
       (habitat_config, config),
-      **config.envs.ray_remote_env
+      **config.envs.vec_ray_remote
     )
   else:
-    print('Creating environments')
-    env = create_env(habitat_config, config)
+    print('Creaing environment')
+    env = create_env(habitat_config, config, index=0)
   # create model & trainer
   agent_name = config.agent.pop('type')
   agent_class = registry.get.kemono_agent(agent_name)
@@ -93,6 +99,7 @@ def main(args):
   )
   # start training
   trainer.fit(model)
+  env.close()
 
 
 if __name__ == '__main__':

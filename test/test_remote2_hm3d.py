@@ -4,7 +4,7 @@ import cv2
 from omegaconf import OmegaConf
 # --- my module ---
 import kemono
-from kemono.envs import train_env
+from kemono.envs import habitat_env
 from kemono.envs.wrap import (
   SemanticMapBuilderWrapper,
   SemanticWrapper,
@@ -18,11 +18,12 @@ OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
 ENV_ID = 'HabitatTrain-v0'
 
 def create_env(habitat_config, config):
-  env = train_env.make(
+  env = habitat_env.make(
     ENV_ID,
     habitat_config,
     auto_stop = True,
-    make_act_space = False
+    enable_stop = True,
+    enable_pitch = True
   )
   config = OmegaConf.create(config)
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
@@ -49,20 +50,18 @@ def example():
     print('Observations:')
     print(f"  Objectgoal: {observations['objectgoal']}")
 
-    scene = env.render('rgb_array')
-    cv2.imshow('Scene', scene[...,::-1])
+    env.render('human')
 
     count_steps = 0
     done = False
     while not done:
-      action = controller.step()
+      action = controller.act()
       observations, reward, done, info = env.step(action)
       count_steps += 1
       # --- show observations ---
       print(f"Rewards: {reward}")
 
-      scene = env.render('rgb_array')
-      cv2.imshow('Scene', scene[...,::-1])
+      env.render('human')
 
       metrics = info["metrics"]
       goal = info["goal"]
