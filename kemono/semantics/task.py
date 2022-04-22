@@ -188,8 +188,7 @@ class HabitatDataset(Dataset):
 
     Returns:
       np.ndarray: RGB data in (c, h, w), np.float32
-    """    
-    # return (c, h, w), torch.float32
+    """
     rgb_path = os.path.join(self.root_path, self.rgb_list[sample_id])
     # load data
     rgb = cv2.imread(rgb_path)[...,::-1] # (h, w, c), bgr->rgb
@@ -208,7 +207,6 @@ class HabitatDataset(Dataset):
     Returns:
       np.ndarray: depth data in (1, h, w), np.float32
     """
-    # return (1, h, w), torch.float32
     depth_path = os.path.join(self.root_path, self.depth_list[sample_id])
     # (h, w), np.uint16 -> (1, h, w), torch.float32
     depth = cv2.imread(depth_path, -1) # (h, w), torch.uint16
@@ -234,8 +232,7 @@ class HabitatDataset(Dataset):
           if multi_scale_seg is None.
         * a tuple of ground truth segmentation with different scales,
           if multi_scale_seg is set.
-    """    
-    # return (h, w), torch.int64
+    """
     seg_path = os.path.join(self.root_path, self.seg_list[sample_id])
     # (h, w), np.int32 -> torch.int64
     seg = np.load(seg_path)
