@@ -33,9 +33,9 @@ macro:
   log_path: "/src/logs/kemono_agent/${macro.agent_type}/${macro.env_id}/"
 
   seq_len: 16
-  batch_size: 48
+  batch_size: 64
   num_workers: 256
-  group_size: 96
+  group_size: 128
 
 
 envs:
@@ -71,6 +71,22 @@ envs:
       to_global: false
       center_mode: none
     maps_config: # each map will be an observation in the observation dict
+      video_map: # for video
+        type: world
+        crop:
+          center: camera
+          width: 600
+          height: 600
+        smooth:
+          dilate_size: 5
+          dilate_iter: 2
+          erode_size: 5
+          erode_iter: 1
+        colorize:
+          draw_origin: true
+          draw_camera: true
+          draw_trajectory: true
+          draw_goals: false
       large_map:
         type: world2local # can be world, local, world2local
         crop:
@@ -161,7 +177,7 @@ envs:
       objectgoal:
         type: scalar
     video_config:
-      image: ['rgb', 'seg_color', 'large_map']
+      image: ['rgb', 'seg_color', 'video_map']
       size: [[640, 480], [640, 480], [480, 480]]
       label: ['RGB', 'Segmentation', 'Topdown View']
       goal: 'objectgoal'
@@ -189,17 +205,17 @@ agent:
   policy:
     backbone: ${macro.backbone}
     hidden_units: 512
-    mlp_units: [128] # 512 -> 256 -> n_actions
+    mlp_units: [256] # 512 -> 256 -> n_actions
     skip_conn: false
     rnn_type: lstm
   value:
     backbone: ${macro.backbone}
     hidden_units: 512
-    mlp_units: [128] # 512 -> 256 -> n_actions
+    mlp_units: [256] # 512 -> 256 -> n_actions
     skip_conn: false
     rnn_type: lstm
   batch_size: ${macro.batch_size}
-  learn_alpha: false # disable alpha learning
+  learn_alpha: false
   init_alpha: 0.5
   entropy_scale: 0.2
   policy_lr: 3.0e-4
@@ -210,7 +226,7 @@ agent:
   tau: 0.005
   gamma: 0.98
   n_steps: 32
-  n_gradsteps: 64
+  n_gradsteps: 32
   train_dataset: ${train_dataset}
 
 train_dataset:
@@ -228,7 +244,7 @@ train_dataset:
         max_to_keep: 2000
         clean_unused: false
       drawer:
-        max_to_draw: 1000
+        max_to_draw: 500
       zero_pad:
         chunk_size: ${macro.seq_len}
     policy_stream:
@@ -240,7 +256,7 @@ train_dataset:
         max_to_keep: 2000
         clean_unused: true
       drawer:
-        max_to_draw: 1000
+        max_to_draw: 500
       zero_pad:
         chunk_size: ${macro.seq_len}
   dataset:
@@ -255,7 +271,7 @@ train_dataset:
     drop_remainder: false
 
 checkpoint:
-  monitor: "train/success"
+  monitor: "train/avg_success"
   save_last: True
   save_top_k: 40
   mode: max
@@ -263,7 +279,7 @@ checkpoint:
   verbose: True
 
 trainer:
-  max_epochs: 1000000
+  max_epochs: 10000000
   accelerator: 'gpu'
   devices: [2]
   default_root_dir: "${macro.log_path}"

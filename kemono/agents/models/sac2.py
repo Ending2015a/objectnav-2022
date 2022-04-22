@@ -186,8 +186,8 @@ class Agent(nn.Module):
     self.policy = None
     self.q1_value = None
     self.q2_value = None
-    self.value = None
-    self.value_tar = None
+    self.q1_value_tar = None
+    self.q2_value_tar = None
 
   @property
   def device(self):
@@ -345,7 +345,7 @@ class Agent(nn.Module):
   def get_states(self, batch_size=1, device='cuda'):
     return {
       self.policy_key: self.policy.get_states(batch_size, device),
-      self.value_key: self.value.get_states(batch_size, device)
+      self.value_key: self.q1_value.get_states(batch_size, device)
     }
 
   def update_target(self, tau=1.0):
@@ -505,7 +505,7 @@ class SAC2(pl.LightningModule):
     )
     value_optim = torch.optim.Adam(
       list(self.agent.q1_value.parameters()) +
-      list(self.agent.q2_value.parameters()),
+        list(self.agent.q2_value.parameters()),
       lr = self.config.value_lr
     )
     alpha_optim = torch.optim.Adam(
@@ -562,7 +562,7 @@ class SAC2(pl.LightningModule):
     self.manual_backward(q1_loss+q2_loss)
     value_optim.step()
     # update alpha
-    if self.learn_alpha:
+    if self.config.learn_alpha:
       alpha_optim.zero_grad()
       self.manual_backward(alpha_loss)
       alpha_optim.step()
@@ -659,12 +659,12 @@ class SAC2(pl.LightningModule):
     # forward q values
     q1, next_states_vf, history_q1 = self.agent.q1_value(
       obs,
-      states = states_vf
+      states = states_vf,
       reset = reset
     ) # (seq, b, act)
     q2, _, history_q2 = self.agent.q2_value(
       obs,
-      states = states_vf
+      states = states_vf,
       reset = reset
     ) # (seq, b, act)
     q = torch.min(q1, q2)
