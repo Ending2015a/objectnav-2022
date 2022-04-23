@@ -140,4 +140,5 @@ class CleanObsWrapper(gym.Wrapper):
       canvas = self._cached_canvas
     if mode == 'human':
       cv2.imshow('Habitat', canvas[...,::-1])
+      cv2.waitKey(1)
     return canvas

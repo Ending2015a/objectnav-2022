@@ -82,7 +82,7 @@ class Reward_v2(BaseReward):
 
 @registry.register.reward('v3')
 class Reward_v3(BaseReward):
-  reward_range = (-1.001, 4.0)
+  reward_range = (-2.0, 4.0)
   slack_reward = -1e-3
   success_reward = 3.0
   max_delta = 0.3
@@ -105,6 +105,31 @@ class Reward_v3(BaseReward):
     prev_d2g = prev_metrics['distance_to_goal']
     delta = np.clip(prev_d2g - d2g, -self.max_delta, self.max_delta)
     reward = self.dlog(d2g, delta) + self.slack_reward
+    if metrics['success']:
+      reward += self.success_reward
+    return np.clip(reward, self.reward_range[0], self.reward_range[1])
+
+@registry.register.reward('v4')
+class Reward_v4(BaseReward):
+  reward_range = (-2.0, 5.0)
+  slack_reward = -1e-3
+  success_reward = 5.0
+  max_delta = 0.3
+  def __call__(
+    self,
+    env: HabitatEnv,
+    obs: Dict[str, Any],
+    act: int,
+    next_obs: Dict[str, Any],
+    done: bool,
+    info: Dict[str, Any]
+  ):
+    metrics = info["metrics"]
+    prev_metrics = info['prev_metrics']
+    d2g = metrics['distance_to_goal']
+    prev_d2g = prev_metrics['distance_to_goal']
+    move_reward = np.clip((prev_d2g - d2g)/self.max_delta, -1.0, 1.0)
+    reward = move_reward + self.slack_reward
     if metrics['success']:
       reward += self.success_reward
     return np.clip(reward, self.reward_range[0], self.reward_range[1])

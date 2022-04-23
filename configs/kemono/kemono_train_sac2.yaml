@@ -3,7 +3,7 @@ habitat_config: "/src/configs/test/test_hm3d.train.rgbd.yaml"
 macro:
   backbone:
     net_config:
-      rgb:
+      depth:
         type: cnn
         mlp_units: [512]
       # large_map:
@@ -28,7 +28,7 @@ macro:
     4: tv_monitor
     5: sofa
 
-  env_id: HabitatEnv-v3
+  env_id: HabitatEnv-v4
   agent_type: sac2
   log_path: "/src/logs/kemono_agent/${macro.agent_type}/${macro.env_id}/"
 
@@ -150,12 +150,12 @@ envs:
 
   clean_obs:
     obs_configs:
-      rgb:
+      depth:
         type: image
         resize:
-          width: 128
-          height: 128
-          mode: 'bilinear'
+          width: 180
+          height: 180
+          mode: 'nearest'
         channel_first: true
         invert_color: false
       # large_map:
@@ -169,8 +169,8 @@ envs:
       small_map:
         type: image
         resize:
-          width: 128
-          height: 128
+          width: 180
+          height: 180
           mode: 'nearest'
         channel_first: true
         invert_color: true
@@ -193,10 +193,9 @@ envs:
   trajectory_recorder:
     interval: 1
 
-  vec_ray_remote:
+  vec_envs:
     n_envs: 2
-    num_cpus: 1
-    num_gpus: 1
+    gpus: [0, 1]
 
 agent:
   type: ${macro.agent_type}
@@ -224,10 +223,10 @@ agent:
   value_lr: 3.0e-4
   alpha_lr: 3.0e-4
   loss_type: huber
-  huber_delta: 0.001
+  huber_delta: 0.01
   tau: 0.005
   gamma: 0.98
-  warmup_steps: 5000
+  warmup_steps: 10000
   n_steps: 32
   n_gradsteps: 32
   train_dataset: ${train_dataset}

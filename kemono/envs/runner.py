@@ -236,7 +236,7 @@ class VecRunner(Runner):
   def step(self, random: bool=False):
     next_obs, rew, dones, infos = self._collect_step(random=random)
     if DEBUG:
-      self.env.render('human')
+      self.env.render(mode='human')
     # update statistics
     self.episode_lengths += 1
     self.episode_rewards += rew

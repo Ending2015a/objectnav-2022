@@ -274,7 +274,10 @@ class Agent(nn.Module):
     if proc_obs:
       x = self.proc_observation(x)
     # rgb expecting (..., batch, c, h, w)
-    rgb_tensor = x['rgb']
+    for key in ['rgb', 'depth', 'small_map']:
+      if key in x:
+        break
+    rgb_tensor = x[key]
     batch = rgb_tensor.shape[-4]
     if states is None:
       states = self.get_states(batch, device=rgb_tensor.device)
@@ -311,7 +314,10 @@ class Agent(nn.Module):
     **kwargs
   ):
     # expecting x (...) or (batch, ...)
-    is_batch = len(x['rgb'].shape) > 3
+    for key in ['rgb', 'depth', 'small_map']:
+      if key in x:
+        break
+    is_batch = len(x[key].shape) > 3
     if not is_batch:
       expand_op = lambda x: np.expand_dims(x, axis=0)
       x = rlchemy.utils.map_nested(x, expand_op)

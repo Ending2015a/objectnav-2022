@@ -14,13 +14,20 @@ from kemono.envs.wrap import (
   SemanticWrapper,
   CleanObsWrapper,
   AutoResetWrapper,
-  VecRayRemoteEnv,
+  SubprocVecEnv,
 )
 
 def create_env(habitat_config, config, index=None):
   if index is not None:
     habitat_config.defrost()
     habitat_config.SEED = habitat_config.SEED + index
+    habitat_config.freeze()
+  if 'vec_envs' in config.envs:
+    gpu = config.envs.vec_envs.gpus[index]
+    import torch
+    torch.cuda.set_device(gpu)
+    habitat_config.defrost()
+    habitat_config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu
     habitat_config.freeze()
   config = OmegaConf.create(config)
   # Create base env
@@ -55,6 +62,10 @@ def create_env(habitat_config, config, index=None):
   env = AutoResetWrapper(env)
   return env
 
+def create_env_fn(index, args):
+  def _fn():
+    return create_env(*args, index)
+  return _fn
 
 def main(args):
   # Load OmegaConf configurations
@@ -67,14 +78,13 @@ def main(args):
   # Load habitat configurations
   habitat_config = get_config(config.habitat_config)
   # create env
-  if 'vec_ray_remote' in config.envs:
-    print('Creaing VecRayRemoteEnv environment')
-    kemono.utils.init_ray()
-    env = VecRayRemoteEnv(
-      create_env,
-      (habitat_config, config),
-      **config.envs.vec_ray_remote
-    )
+  if 'vec_envs' in config.envs:
+    print('Create vectorized environments')
+    env_fns = [
+      create_env_fn(i, (habitat_config, config))
+      for i in range(config.envs.vec_envs.n_envs)
+    ]
+    env = SubprocVecEnv(env_fns)
   else:
     print('Creaing environment')
     env = create_env(habitat_config, config, index=0)
