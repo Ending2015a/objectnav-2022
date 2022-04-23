@@ -326,18 +326,25 @@ class SemanticTask(pl.LightningModule):
   def __init__(
     self,
     config: Union[dict, omegaconf.Container],
-    inference_only: bool = False
+    inference_only: bool = False,
+    override_params: List[str] = []
   ):
     """Semantic segmentation task wrapper
 
     Args:
-        config (Union[dict, omegaconf.Container]): configurations.
-        inference_only (bool, optional): inference mode only.
-          Defaults to False.
+      config (Union[dict, omegaconf.Container]): configurations.
+      inference_only (bool, optional): inference mode only.
+        Defaults to False.
+      override_params (List[str], optional): dot list params to
+      override the `config`.
     """
     super().__init__()
     config = OmegaConf.create(config)
     OmegaConf.resolve(config)
+    if override_params:
+      override_config = OmegaConf.from_dotlist(override_params)
+      OmegaConf.resolve(override_config)
+      config = OmegaConf.merge(config, override_config)
     self.save_hyperparameters("config")
     # ---
     self.config = config
@@ -356,6 +363,7 @@ class SemanticTask(pl.LightningModule):
     self.preprocess = Preprocess(**self.config.preprocess)
     model_class = registry.get.semantic_model(self.config.model_name)
     self.model = model_class(**self.config.model)
+    self.num_classes = self.config.num_classes
 
   def setup_loss(self):
     """Setup loss module"""
@@ -424,6 +432,7 @@ class SemanticTask(pl.LightningModule):
     self,
     rgb: Union[np.ndarray, torch.Tensor],
     depth: Union[np.ndarray, torch.Tensor],
+    logits_scale: Union[np.ndarray, torch.Tensor] = None,
     **kwargs
   ) -> np.ndarray:
     """Predict one sample or batch of samples
@@ -441,7 +450,14 @@ class SemanticTask(pl.LightningModule):
     orig_shape = rgb.shape
     one_sample = (len(orig_shape) == 3)
     with utils.evaluate(self):
-      out = self(rgb, depth, **kwargs)
+      out = self(rgb, depth, **kwargs) # (b, c, h, w)
+      if logits_scale is not None:
+        logits_scale = rlchemy.utils.to_tensor_like(
+          logits_scale,
+          out
+        )
+        logits_scale = logits_scale.view(1, -1, 1, 1)
+        out = out * logits_scale
     out = torch.argmax(out, dim=1, keepdim=True)
     orig_size = orig_shape[-2:]
     out = utils.resize_image(out, orig_size, 'nearest')

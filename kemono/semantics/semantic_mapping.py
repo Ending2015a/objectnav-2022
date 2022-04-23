@@ -269,7 +269,7 @@ class SemanticMapping():
     self, goal: int
   ) -> int:
     """Return mpcat40 category ID.
-    Note that to use this API, you need to pass `dataset`
+    Note that to use this API, you need to pass `goal_mapping`
     when constructing SemanticMapping.
 
     Args:

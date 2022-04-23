@@ -25,7 +25,7 @@ class _GTSemanticPredictor():
     self.semap = semantic_mapping
     self.sim = simulator
   
-  def reset(self):
+  def reset(self, goal_id=None):
     self.semap.parse_semantics(
       self.sim.semantic_annotations(),
       reset = True
@@ -91,8 +91,9 @@ class SemanticWrapper(gym.Wrapper):
 
   def reset(self, *args, **kwargs):
     obs = self.env.reset(*args, **kwargs)
+    goal_id = self.semap.get_goal_category_id(obs['objectgoal'])
     if self.predictor is not None:
-      self.predictor.reset()
+      self.predictor.reset(goal_id=goal_id)
     obs = self.get_observations(obs)
     return obs
 
