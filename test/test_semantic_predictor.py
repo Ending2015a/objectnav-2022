@@ -42,7 +42,7 @@ def example():
     env,
     goal_mapping = config.envs.semantic_wrapper.goal_mapping,
     colorized = True,
-    predictor_name = 'model',
+    predictor_name = 'rednet',
     predictor_kwargs = dict(
       restore_path = RESTORE_PATH,
       goal_logits_scale = 0.25,

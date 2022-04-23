@@ -588,12 +588,18 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     self.render_maps = render_maps
     self.enable_goals = enable_goals
     self._cached_maps = None
+    self._cached_color_maps = None
     self._cached_trajectory = []
     self._agent_init_pos = None
     self._goals = None
     from kemono.semantics import CategoryMapping
     self._category_mapping = CategoryMapping()
     self.observation_space = self.make_observation_space()
+
+  def get_cached_map(self, name: str) -> dmap.TopdownMap:
+    if name in self._cached_maps:
+      return self._cached_maps[name]
+    return None
 
   def _structure_maps_config(self, _map_configs):
     maps_config = dict()
@@ -637,6 +643,7 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     world2local_map = self.map_builder.world2local_map
     # render observations from config
     self._cached_maps = {}
+    self._cached_color_maps = {}
     for map_name, map_config in self.maps_config.items():
       if map_config.type == 'local':
         base_map = local_map
@@ -644,12 +651,18 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
         base_map = world2local_map
       else:
         base_map = world_map
-      value_map = self.render_map(map_config, base_map)
+      base_map = self.generate_map(map_config, base_map)
+      value_map = self.colorize_map(map_config, base_map)
       obs[map_name] = value_map
-      self._cached_maps[map_name] = value_map
+      self._cached_maps[map_name] = base_map
+      self._cached_color_maps[map_name] = value_map
     return obs
 
-  def render_map(self, map_config: MapConfig, base_map: dmap.TopdownMap):
+  def generate_map(
+    self,
+    map_config: MapConfig,
+    base_map: dmap.TopdownMap
+  ):
     # crop map
     if map_config.crop:
       if map_config.crop.center == 'camera':
@@ -661,6 +674,13 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
         map_config.crop.width,
         map_config.crop.height
       )
+    return base_map
+
+  def colorize_map(
+    self,
+    map_config: MapConfig,
+    base_map: dmap.TopdownMap
+  ):
     if map_config.colorize:
       value_map = self.map_builder.get_value_map(
         base_map,
@@ -733,7 +753,7 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     res = self.env.render(mode=mode)
     if mode == 'human' or mode == 'interact':
       for map_name in self.render_maps:
-        if map_name in self._cached_maps:
-          map_image = self._cached_maps[map_name]
+        if map_name in self._cached_color_maps:
+          map_image = self._cached_color_maps[map_name]
           cv2.imshow(map_name, map_image[...,::-1])
     return res

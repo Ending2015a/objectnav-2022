@@ -7,4 +7,4 @@ from .semantic_mapping import (
     GoalMapping
 )
 from .task import SemanticTask
-from .predictor import SemanticPredictor
+from . import predictor
