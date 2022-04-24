@@ -2,7 +2,7 @@
 _import_:
   - "/src/configs/envs/kemono_train.yaml"
 
-habitat_config: "/src/configs/test/test_hm3d.train.rgbd.yaml"
+habitat_config: "/src/configs/test/test_hm3d.val_mini.rgbd.yaml"
 
 goal_mapping:
   0: chair

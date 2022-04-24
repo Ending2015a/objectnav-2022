@@ -1,4 +1,5 @@
 # --- built in ---
+import math
 import copy
 from typing import (
   Any,
@@ -19,13 +20,6 @@ from rlchemy import registry
 import gym
 from omegaconf import OmegaConf
 # --- my module ---
-
-__all__ = [
-  'AwesomeMlp',
-  'AwesomeCnn',
-  'AwesomeBackbone',
-  'AwesomeRnn'
-]
 
 @registry.register.kemono_net('mlp', default=True)
 class AwesomeMlp(DelayedModule):
@@ -70,8 +64,8 @@ class AwesomeMlp(DelayedModule):
     return x
 
 
-@registry.register.kemono_net('cnn')
-class AwesomeCnn(DelayedModule):
+@registry.register.kemono_net('nature_cnn')
+class AwesomeNatureCnn(DelayedModule):
   def __init__(
     self,
     shape: Tuple[int, ...] = None,
@@ -388,11 +382,11 @@ class AwesomeBinEmbed(nn.Module):
   def __init__(
     self,
     *args,
-    min_val,
-    max_val,
-    num_embed,
-    embed_dim,
-    use_log_scale=False,
+    min_val: float,
+    max_val: float,
+    num_embed: int,
+    embed_dim: int,
+    use_log_scale: bool = False,
     **kwargs
   ):
     super().__init__()
@@ -411,7 +405,7 @@ class AwesomeBinEmbed(nn.Module):
   
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     if self.use_log_scale:
-      x = torch.log(x)/torch.log(2.)
+      x = torch.log(x)/math.log(2.)
     x = self.num_embed * (x-self.min_val)/(self.max_val-self.min_val)
     x = torch.clamp(x, 0, self.num_embed - 1)
     x = x.to(dtype=torch.int64)
