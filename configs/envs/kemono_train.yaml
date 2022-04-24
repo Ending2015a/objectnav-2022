@@ -1,0 +1,158 @@
+
+goal_mapping:
+  0: chair
+  1: bed
+  2: plant
+  3: toilet
+  4: tv_monitor
+  5: sofa
+
+envs:
+  env_id: HabitatEnv-v0
+  habitat_env:
+    auto_stop: false
+    enable_pitch: false
+    enable_stop: false
+
+  semantic_wrapper:
+    goal_mapping: ${goal_mapping}
+    predictor_name: 'gt'
+
+  semantic_map_builder:
+    world_config: # this is used as the base config of map projector
+      map_res: 0.03
+      map_width: 300 # initial width and height
+      map_height: 300
+      trunc_height_max: 1.7
+      width_offset: 0.0
+      height_offset: 0.0
+      clip_border: 10
+      fill_value: 0
+      to_global: true
+      device: cuda
+    local_config:
+      map_res: 0.03
+      map_width: 300
+      map_height: 300
+      width_offset: 150.0
+      height_offset: 0.0
+      fill_value: 0
+      to_global: false
+      center_mode: none
+    num_classes: 40
+    walkable_labels: [2, 16] # floor, stairs
+    ignore_labels: [0, 17, 20, 28, 38] # void, ceiling, towel, lightning, clothes
+    layers_labels:
+      - [1, 9, 24, 30] # wall, door, window, column, railing
+      - [4, 16] # door, stairs
+      - [7, 27, 31, 36, 37] # cabinet, fireplace, shelving, furniture, appliances
+      - [3, 5, 10, 26, 34] # chair, table, sofa, counter, seating
+      - [8, 11] # bed, cushion
+      - [18, 23, 25] # toilet, shower, bathtub
+      - [14] # plant
+      - [22] # tv_monitor
+    color_palette:
+      - "#FFFFFF" # background
+      - "#999999" # obstacles
+      - "#F2F2F2" # walkable
+      - "#999999" # layer 0
+      - "#9EDAE5" # layer 1
+      - "#FF871F" # layer 2
+      - "#A55194" # layer 3
+      - "#7A70E8" # layer 4
+      - "#E7969C" # layer 5
+      - "#09AE1B" # layer 6
+      - "#D6616B" # layer 7
+      - "#FFFF00" # goal
+    goal_mapping: ${goal_mapping}
+
+  semantic_map_observer:
+    maps_config: # each map will be an observation in the observation dict
+      large_map: # large map is used for planner
+        type: world # can be world, local, world2local
+        crop:
+          center: camera # can be camera, origin
+          width: 600
+          height: 600
+        smooth:
+          dilate_size: 5
+          dilate_iter: 2
+          erode_size: 5
+          erode_iter: 1
+        colorize:
+          draw_origin: false
+          draw_camera: false
+          draw_trajectory: false
+          draw_goals: false
+    render_maps: ['large_map']
+    enable_goals: false
+
+  planner: {}
+
+  semantic_map_observer2:
+    maps_config:
+      video_map: # for video
+        type: world
+        crop:
+          center: camera
+          width: 600
+          height: 600
+        smooth:
+          dilate_size: 5
+          dilate_iter: 2
+          erode_size: 5
+          erode_iter: 1
+        colorize:
+          draw_origin: true
+          draw_camera: true
+          draw_trajectory: true
+          draw_goals: false
+          draw_planner_goal: true
+      small_map:
+        type: world2local
+        crop:
+          center: camera
+          width: 300
+          height: 300
+        smooth:
+          dilate_size: 5
+          dilate_iter: 2
+          erode_size: 5
+          erode_iter: 1
+        colorize:
+          draw_origin: false
+          draw_camera: false
+          draw_trajectory: false
+          draw_goals: false
+          draw_planner_goal: false
+    render_maps: ['video_map', 'small_map']
+    enable_goals: false
+
+  clean_obs:
+    obs_configs:
+      depth:
+        type: image
+        resize:
+          width: 180
+          height: 180
+          mode: 'nearest'
+        channel_first: true
+        invert_color: false
+      small_map:
+        type: image
+        resize:
+          width: 180
+          height: 180
+          mode: 'nearest'
+        channel_first: true
+        invert_color: true
+      plan_distance:
+        type: scalar
+      plan_angle:
+        type: scalar
+    video_config:
+      image: ['rgb', 'seg_color', 'video_map']
+      size: [[320, 240], [320, 240], [240, 240]]
+      label: ['RGB', 'Segmentation', 'Topdown View']
+      goal: 'objectgoal'
+      goal_mapping: ${goal_mapping}

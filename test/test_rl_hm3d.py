@@ -11,16 +11,20 @@ from habitat.sims.habitat_simulator.actions import HabitatSimActions
 import kemono
 from kemono.envs import habitat_env
 from kemono.envs.wrap import (
+  SemanticMapObserver,
   SemanticMapBuilderWrapper,
-  SemanticWrapper
+  SemanticWrapper,
+  PlannerWrapper,
+  CleanObsWrapper
 )
 from kemono.envs.control import ManualController
 
 CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
-OMEGACONF_PATH = '/src/configs/kemono/kemono_train_config.yaml'
+OMEGACONF_PATH = '/src/configs/kemono/kemono_train_sac2.yaml'
 ENV_ID = 'HabitatEnv-v0'
 
 def example():
+  config = kemono.utils.load_config(OMEGACONF_PATH, resolve=True)
   habitat_config = kemono.get_config(CONFIG_PATH)
   env = habitat_env.make(
     ENV_ID,
@@ -29,12 +33,23 @@ def example():
     enable_pitch = True,
     enable_stop = True
   )
-  config = OmegaConf.load(OMEGACONF_PATH)
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
-  # env = SemanticMapBuilderWrapper(
-  #   env,
-  #   **config.envs.semantic_map_builder
-  # )
+  env = SemanticMapBuilderWrapper(
+    env,
+    **config.envs.semantic_map_builder
+  )
+  env = SemanticMapObserver(
+    env,
+    **config.envs.semantic_map_observer
+  )
+  env = PlannerWrapper(
+    env,
+    **config.envs.planner
+  )
+  env = SemanticMapObserver(
+    env,
+    **config.envs.semantic_map_observer2
+  )
   controller = ManualController(env)
 
   print("Environment creation successful")
@@ -48,6 +63,7 @@ def example():
     print(f'  Object goal: {observations["objectgoal"]}')
     print(f"  GPS: {observations['gps']}")
     print(f"  compass: {observations['compass']}")
+    cv2.imshow('small_map_obs', np.transpose(observations['small_map'], (1, 2, 0))[...,::-1])
     env.render("interact")
 
     print("Agent stepping around inside environment.")
@@ -62,8 +78,11 @@ def example():
       print('Observations:')
       print(f"  GPS: {observations['gps']}")
       print(f"  compass: {observations['compass']}")
+      print(f"  plan: ({observations['plan_distance']}, "
+            f"{observations['plan_angle']}, "
+            f"{observations['plan_time']})")
       print(f"Rewards: {reward}")
-
+      cv2.imshow('small_map_obs', np.transpose(observations['small_map'], (1, 2, 0))[...,::-1])
       env.render("interact")
 
       metrics = info["metrics"]

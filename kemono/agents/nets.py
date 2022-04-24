@@ -381,3 +381,39 @@ class AwesomeEmbed(nn.Module):
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     x = x.to(dtype=torch.int64)
     return self._model(x)
+
+
+@registry.register.kemono_net('bin_embed')
+class AwesomeBinEmbed(nn.Module):
+  def __init__(
+    self,
+    *args,
+    min_val,
+    max_val,
+    num_embed,
+    embed_dim,
+    use_log_scale=False,
+    **kwargs
+  ):
+    super().__init__()
+    self.min_val = min_val
+    self.max_val = max_val
+    self.num_embed = num_embed
+    self.embed_dim = embed_dim
+    self.use_log_scale = use_log_scale
+
+    if self.use_log_scale:
+      self.min_val = np.log2(min_val)
+      self.max_val = np.log2(max_val)
+    
+    self._model = nn.Embedding(num_embed, embed_dim)
+    self.output_dim = embed_dim
+  
+  def forward(self, x: torch.Tensor) -> torch.Tensor:
+    if self.use_log_scale:
+      x = torch.log(x)/torch.log(2.)
+    x = self.num_embed * (x-self.min_val)/(self.max_val-self.min_val)
+    x = torch.clamp(x, 0, self.num_embed - 1)
+    x = x.to(dtype=torch.int64)
+    return self._model(x)
+

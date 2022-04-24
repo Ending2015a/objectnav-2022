@@ -86,7 +86,7 @@ def draw_goal(
   topdown_map: dmap.TopdownMap,
   position: np.ndarray,
   color: np.ndarray = GOAL_COLOR,
-  size: int = 2
+  size: int = 3
 ):
   assert len(image.shape) == 3 # (h, w, 3)
   assert image.dtype == np.uint8
@@ -376,13 +376,14 @@ class SmoothConfig:
   dilate_iter: int = 0
   erode_size: int = 3
   erode_iter: int = 0
-  
+
 @dataclass
 class ColorizeConfig:
   draw_origin: bool = False
   draw_camera: bool = False
   draw_trajectory: bool = False
   draw_goals: bool = False
+  draw_planner_goal: bool = False
 
 @dataclass
 class MapConfig:
@@ -555,21 +556,17 @@ class SemanticMapBuilder():
 
 class SemanticMapBuilderWrapper(gym.Wrapper):
   objectgoal_key = 'objectgoal'
-  gps_key = 'gps'
   def __init__(
     self,
     env: habitat.RLEnv,
     world_config: dict,
     local_config: dict,
-    maps_config: dict,
     num_classes: int,
     walkable_labels: List[int],
     ignore_labels: List[int],
     layers_labels: List[List[int]],
     color_palette: List[str],
-    goal_mapping: List[Dict[int, str]],
-    render_maps: List[str],
-    enable_goals: bool = False,
+    goal_mapping: List[Dict[int, str]]
   ):
     super().__init__(env=env)
     config = env.config
@@ -583,22 +580,87 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
       layers_labels = layers_labels,
       color_palette = color_palette
     )
-    self.maps_config = self._structure_maps_config(maps_config)
     self.goal_mapping = goal_mapping
+    self._cached_maps = None
+    self._goals = None
+    from kemono.semantics import CategoryMapping
+    self._category_mapping = CategoryMapping()
+    self._cached_local_map = None
+    self._cached_world_map = None
+    self._cached_world2local_map = None
+
+  def get_local_map(self):
+    return self._cached_local_map
+
+  def get_world_map(self):
+    return self._cached_world_map
+  
+  def get_world2local_map(self):
+    return self._cached_world2local_map
+
+  def get_map_builder(self):
+    return self.map_builder
+
+  def step(self, action, *args, **kwargs):
+    # step environment
+    obs, rew, done, info = self.env.step(action, *args, **kwargs)
+    # render observations
+    obs = self.get_observations(obs)
+    return obs, rew, done, info
+
+  def reset(self, *args, **kwargs):
+    # reset environment
+    obs = self.env.reset(*args, **kwargs)
+    objectgoal = obs[self.objectgoal_key]
+    # parse goal id to mpcat40 id
+    goal_name = self.goal_mapping[np.asarray(objectgoal).item()]
+    goal_id = self._category_mapping.get_mpcat40_id_by_category_name(goal_name)
+    # reset map builder
+    self.map_builder.reset(goal_id)
+    obs = self.get_observations(obs)
+    return obs
+
+  def get_observations(self, obs):
+    # update map builder
+    local_map = self.map_builder.step(obs)
+    world_map = self.map_builder.world_map
+    world2local_map = self.map_builder.world2local_map
+    self._cached_local_map = local_map
+    self._cached_world_map = world_map
+    self._cached_world2local_map = world2local_map
+    return obs
+
+  def render(self, mode="human"):
+    return self.env.render(mode=mode)
+
+
+class SemanticMapObserver(gym.Wrapper):
+  objectgoal_key = 'objectgoal'
+  gps_key = 'gps'
+  def __init__(
+    self,
+    env: habitat.RLEnv,
+    maps_config: dict,
+    render_maps: List[str],
+    enable_goals: bool = False,
+  ):
+    super().__init__(env=env)
+    self.maps_config = self._structure_maps_config(maps_config)
     self.render_maps = render_maps
     self.enable_goals = enable_goals
     self._cached_maps = None
     self._cached_color_maps = None
     self._cached_trajectory = []
-    self._agent_init_pos = None
     self._goals = None
-    from kemono.semantics import CategoryMapping
-    self._category_mapping = CategoryMapping()
     self.observation_space = self.make_observation_space()
+    assert hasattr(self.env, 'get_map_builder')
+    self.map_builder = self.env.get_map_builder()
 
   def get_cached_map(self, name: str) -> dmap.TopdownMap:
     if name in self._cached_maps:
       return self._cached_maps[name]
+    if hasattr(self.env, 'get_cached_map'):
+      return self.env.get_cached_map(name)
     return None
 
   def _structure_maps_config(self, _map_configs):
@@ -620,16 +682,10 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
   def reset(self, *args, **kwargs):
     # reset environment
     obs = self.env.reset(*args, **kwargs)
-    objectgoal = obs[self.objectgoal_key]
     gps = obs[self.gps_key]
     # cache agent positions
     self._cached_trajectory = []
     self._cached_trajectory.append((gps[1], 0, gps[0]))
-    # parse goal id to mpcat40 id
-    goal_name = self.goal_mapping[np.asarray(objectgoal).item()]
-    goal_id = self._category_mapping.get_mpcat40_id_by_category_name(goal_name)
-    # reset map builder
-    self.map_builder.reset(goal_id)
     if self.enable_goals:
       # cache goals
       self._goals = self.get_goals()
@@ -637,10 +693,10 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     return obs
 
   def get_observations(self, obs):
-    # update map builder
-    local_map = self.map_builder.step(obs)
-    world_map = self.map_builder.world_map
-    world2local_map = self.map_builder.world2local_map
+    # get base maps from SemanticMapBuilderWrapper
+    local_map = self.env.get_local_map()
+    world_map = self.env.get_world_map()
+    world2local_map = self.env.get_world2local_map()
     # render observations from config
     self._cached_maps = {}
     self._cached_color_maps = {}
@@ -695,6 +751,14 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
       if map_config.colorize.draw_goals and self.enable_goals:
         for goal in self._goals:
           value_map = draw_goal(value_map, base_map, goal)
+      # draw planner goal
+      if map_config.colorize.draw_planner_goal:
+        if hasattr(self.env, 'get_plan_state'):
+          plan_state = self.env.get_plan_state()
+          if plan_state is not None:
+            goal = plan_state.plan.goal
+            plan_goal = (goal[0], 0, goal[1])
+            draw_goal(value_map, base_map, plan_goal)
       # draw origin, camera
       if map_config.colorize.draw_origin:
         value_map = draw_origin(value_map, base_map)
@@ -749,7 +813,7 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
     ]
     return np.asarray(goal_pos)
 
-  def render(self, mode="human"):
+  def render(self, mode="human", planner=None):
     res = self.env.render(mode=mode)
     if mode == 'human' or mode == 'interact':
       for map_name in self.render_maps:

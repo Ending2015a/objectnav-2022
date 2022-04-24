@@ -11,7 +11,9 @@ import kemono
 from kemono.envs import habitat_env
 from kemono.envs.wrap import (
   SemanticMapBuilderWrapper,
+  SemanticMapObserver,
   SemanticWrapper,
+  PlannerWrapper,
   CleanObsWrapper,
   AutoResetWrapper,
   SubprocVecEnv,
@@ -40,18 +42,24 @@ def create_env(habitat_config, config, index=None):
   env = SemanticWrapper(env, **config.envs.semantic_wrapper)
   # semantic top-down maps
   env = SemanticMapBuilderWrapper(
-    env,
-    **config.envs.semantic_map_builder
+    env, **config.envs.semantic_map_builder
+  )
+  env = SemanticMapObserver(
+    env, **config.envs.semantic_map_observer
+  )
+  env = PlannerWrapper(
+    env, **config.envs.planner
+  )
+  env = SemanticMapObserver(
+    env, **config.envs.semantic_map_observer2
   )
   # clean observations
   env = CleanObsWrapper(
-    env,
-    **config.envs.clean_obs
+    env, **config.envs.clean_obs
   )
   # Monitor group
   env = rlchemy.envs.Monitor(
-    env,
-    **config.envs.monitor
+    env, **config.envs.monitor
   )
   rlchemy.envs.TrajectoryRecorder.trajectory_suffix = \
     "ep{episodes:010d}.{start_steps}-{steps}-" + f"id{index}"
