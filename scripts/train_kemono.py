@@ -79,7 +79,7 @@ def main(args):
   # Load OmegaConf configurations
   configs = []
   if args.config is not None:
-    configs.append(OmegaConf.load(args.config))
+    configs.append(kemono.utils.load_config(args.config, resolve=True))
   configs.append(OmegaConf.from_dotlist(args.dot_list))
   config = OmegaConf.merge(*configs)
   OmegaConf.resolve(config)
