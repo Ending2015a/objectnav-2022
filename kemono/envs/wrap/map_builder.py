@@ -28,8 +28,8 @@ FLOOR_COLOR   = hex2rgb('#90D5C3')
 WALL_COLOR    = hex2rgb('#6798D0')
 INVALID_COLOR = hex2rgb('#F4F7FA')
 CAMERA_COLOR  = hex2rgb('#EC5565')
-ORIGIN_COLOR  = hex2rgb('#FFC300')
-GOAL_COLOR    = hex2rgb('#F49FBC')
+ORIGIN_COLOR  = hex2rgb('#F49FBC')
+GOAL_COLOR    = hex2rgb('#FFC300')
 TRAJECTORY_COLOR = hex2rgb('#EC5565')
 
 HEIGHT_THRESHOLD = 0.25

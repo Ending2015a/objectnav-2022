@@ -228,12 +228,16 @@ class _HabitatEnvCore(habitat.RLEnv):
       prev_metrics = self._prev_metrics
       self._prev_metrics = metrics
       return {
+        'objectgoal': obs['objectgoal'],
         'metrics': metrics,
         'prev_metrics': prev_metrics
       }
     else:
-      # empty metrics
-      return {'metrics': {}, 'prev_metrics': {}}
+      return {
+        'objectgoal': obs['objectgoal'],
+        'metrics': {},
+        'prev_metrics': {}
+      }
 
   def render(self, mode="human"):
     if self._cached_obs is None:

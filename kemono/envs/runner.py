@@ -127,7 +127,8 @@ class Runner():
     self.total_steps += 1
     if done:
       metrics = info['metrics']
-      objectgoal = np.asarray(next_obs['objectgoal']).item()
+      objectgoal = info['objectgoal']
+      objectgoal = np.asarray(objectgoal).item()
       length = self.episode_lengths
       reward = self.episode_rewards
       self._update_last_n_statistics(
@@ -245,7 +246,8 @@ class VecRunner(Runner):
     for idx, (done, info) in enumerate(zip(dones, infos)):
       if done:
         metrics = info['metrics']
-        objectgoal = np.asarray(next_obs['objectgoal'][idx]).item()
+        objectgoal = info['objectgoal']
+        objectgoal = np.asarray(objectgoal).item()
         length = self.episode_lengths[idx]
         reward = self.episode_rewards[idx]
         self._update_last_n_statistics(
