@@ -14,7 +14,7 @@ goal_mapping:
 
 env_id: HabitatEnv-v4
 agent_type: sac2
-log_path: "/src/logs/kemono_agent/${agent_type}/${env_id}"
+log_path: "/src/logs/kemono_agent/${agent_type}/${env_id}/"
 seq_len: 16
 batch_size: 64
 num_workers: 256
