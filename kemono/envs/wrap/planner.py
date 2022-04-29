@@ -39,7 +39,7 @@ class PlannerWrapper(gym.Wrapper):
       print(f'Planner not found ... {self.planner_class}')
       self.planner = None
     else:
-      self.planner = planner_class(**planner_kwargs)
+      self.planner = planner_class(env, **planner_kwargs)
     self.enable_reward = enable_reward
     self.observation_space = self.make_observation_space()
     self._cached_plan_state: Optional[PlanState] = None
@@ -51,7 +51,7 @@ class PlannerWrapper(gym.Wrapper):
 
   def step(self, action, obs=None):
     obs, rew, done, info = self.env.step(action, obs=obs)
-    obs, plan_state = self.get_observations_and_plan_state(obs)
+    obs, plan_state = self.get_observations_and_plan_state(obs, action)
     info = self.get_info(obs, info, plan_state)
     rew = self.get_reward(obs, rew, done, info, plan_state)
     return obs, rew, done, info
@@ -97,13 +97,13 @@ class PlannerWrapper(gym.Wrapper):
     return new_obs_space
 
   def get_observations_and_plan_state(
-    self, obs: Dict[str, Any]
+    self, obs: Dict[str, Any], action = None
   ) -> Union[Dict[str, Any], PlanState]:
     if self.planner is None:
       return obs, None
     plan_state = self._cached_plan_state
     # update plan states
-    plan_state = self.planner.step(obs, plan_state)
+    plan_state = self.planner.step(obs, action, plan_state)
     self._cached_plan_state = plan_state
     obs[self.plan_distance_key] = \
       np.asarray(plan_state.plan.distance).item()

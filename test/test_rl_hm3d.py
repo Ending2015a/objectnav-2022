@@ -63,7 +63,7 @@ def example():
     print(f'  Object goal: {observations["objectgoal"]}')
     print(f"  GPS: {observations['gps']}")
     print(f"  compass: {observations['compass']}")
-    cv2.imshow('small_map_obs', np.transpose(observations['small_map'], (1, 2, 0))[...,::-1])
+    cv2.imshow('small_map_obs', observations['small_map'][...,::-1])
     env.render("interact")
 
     print("Agent stepping around inside environment.")
@@ -82,7 +82,7 @@ def example():
             f"{observations['plan_angle']}, "
             f"{observations['plan_time']})")
       print(f"Rewards: {reward}")
-      cv2.imshow('small_map_obs', np.transpose(observations['small_map'], (1, 2, 0))[...,::-1])
+      cv2.imshow('small_map_obs', observations['small_map'][...,::-1])
       env.render("interact")
 
       metrics = info["metrics"]

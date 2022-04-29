@@ -12,7 +12,8 @@ class Plan:
   goal: np.ndarray
   distance: float
   angle: float
-  time: float
+  time: float # exclude forward action
+  max_time: float # include forward action
   expired: bool
   succeed: bool
   need_replan: bool
@@ -61,6 +62,7 @@ class BasePlanner():
       distance = polar_goal[0],
       angle = polar_goal[1],
       time = 0,
+      max_time = 0,
       expired = False,
       succeed = False,
       need_replan = False,

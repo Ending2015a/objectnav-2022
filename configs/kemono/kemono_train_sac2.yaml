@@ -26,10 +26,11 @@ envs:
   planner:
     planner_name: random
     planner_kwargs:
-      max_distance: 4.0
+      max_distance: 6.0
       min_distance: 2.0
       replan_duration: 30
       replan_distance: 1.0
+      max_replan_duration: 100
     enable_reward: true
 
   monitor:
