@@ -271,10 +271,13 @@ class Agent(nn.Module):
     if proc_obs:
       x = self.proc_observation(x)
     # rgb expecting (..., batch, c, h, w)
-    rgb_tensor = x['rgb']
-    batch = rgb_tensor.shape[-4]
+    for key in ['rgb', 'depth', 'small_map']:
+      if key in x:
+        break
+    image_tensor = x[key]
+    batch = image_tensor.shape[-4]
     if states is None:
-      states = self.get_states(batch, device=rgb_tensor.device)
+      states = self.get_states(batch, device=image_tensor.device)
     dist, pi_states, pi_history = self.policy(
       x,
       states = states[self.policy_key],
@@ -308,7 +311,10 @@ class Agent(nn.Module):
     **kwargs
   ):
     # expecting x (...) or (batch, ...)
-    is_batch = len(x['rgb'].shape) > 3
+    for key in ['rgb', 'depth', 'small_map']:
+      if key in x:
+        break
+    is_batch = len(x[key].shape) > 3
     if not is_batch:
       expand_op = lambda x: np.expand_dims(x, axis=0)
       x = rlchemy.utils.map_nested(x, expand_op)
@@ -473,10 +479,13 @@ class SAC1(pl.LightningModule):
       self.setup_train()
 
   def train_batch_fn(self):
+    if self._train_runner.total_steps < self.config.warmup_steps:
+      self._train_runner.collect(
+        n_steps = self.config.warmup_steps
+      )
     # sample n steps for every epoch
     self._train_runner.collect(
-      n_steps = self.config.n_steps,
-      random = True
+      n_steps = self.config.n_steps
     )
     # generate n batches for every epoch
     for _ in range(self.config.n_gradsteps):

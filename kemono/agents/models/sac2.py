@@ -277,10 +277,10 @@ class Agent(nn.Module):
     for key in ['rgb', 'depth', 'small_map']:
       if key in x:
         break
-    rgb_tensor = x[key]
-    batch = rgb_tensor.shape[-4]
+    image_tensor = x[key]
+    batch = image_tensor.shape[-4]
     if states is None:
-      states = self.get_states(batch, device=rgb_tensor.device)
+      states = self.get_states(batch, device=image_tensor.device)
     dist, pi_states, pi_history = self.policy(
       x,
       states = states[self.policy_key],

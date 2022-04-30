@@ -155,7 +155,7 @@ train_dataset:
 # === Training ===
 
 checkpoint:
-  monitor: "train/avg_success"
+  monitor: "train/avg_reward"
   save_last: True
   save_top_k: 40
   mode: max
