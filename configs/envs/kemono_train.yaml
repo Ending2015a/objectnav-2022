@@ -119,13 +119,13 @@ envs:
           dilate_iter: 2
           erode_size: 5
           erode_iter: 1
-        colorize:
-          draw_origin: false
-          draw_camera: false
-          draw_trajectory: false
-          draw_goals: false
-          draw_planner_goal: false
-    render_maps: ['video_map', 'small_map']
+        # colorize:
+        #   draw_origin: false
+        #   draw_camera: false
+        #   draw_trajectory: false
+        #   draw_goals: false
+        #   draw_planner_goal: false
+    render_maps: ['video_map']
     enable_goals: false
 
   clean_obs:
@@ -145,7 +145,7 @@ envs:
           height: 180
           mode: 'nearest'
         channel_first: true
-        invert_color: true
+        invert_color: false
       plan_distance:
         type: scalar
       plan_angle:

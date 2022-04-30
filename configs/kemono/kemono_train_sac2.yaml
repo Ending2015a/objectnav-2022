@@ -28,7 +28,7 @@ envs:
     planner_kwargs:
       max_distance: 6.0
       min_distance: 2.0
-      replan_duration: 30
+      replan_duration: 60
       replan_distance: 1.0
       max_replan_duration: 100
     enable_reward: true
@@ -63,7 +63,7 @@ backbone:
       max_val: 8.0
       num_embed: 72
       embed_dim: 32
-      use_log_scale: true
+      use_log_scale: false
     plan_angle:
       type: bin_embed
       min_val: -3.1415926

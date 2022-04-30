@@ -91,7 +91,6 @@ class RandomPlanner(BasePlanner):
     else:
       plan.max_time = 0
       plan.time = 0
-    print(plan.max_time, plan.time)
     plan.expired = self.will_expire and (
       plan.max_time == 0 or plan.time == 0
     )

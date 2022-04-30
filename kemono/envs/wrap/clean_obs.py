@@ -59,16 +59,16 @@ class CleanObsWrapper(gym.Wrapper):
       config = self.obs_config[key]
       o = obs[key]
       if config.type == 'image':
+        assert len(o.shape) == 3, f"Observation `{key}` must be an iamge space"
+        o = np.transpose(o, (2, 0, 1)) # (c, h, w)
         if config.resize:
-          assert len(o.shape) == 3, f"Observation `{key}` must be an iamge space"
           dtype = o.dtype
           height = config.resize.height
           width = config.resize.width
           mode = config.resize.mode
-          o = resize_image(np.transpose(o, (2, 0, 1)), (height, width), mode=mode)
-          o = np.transpose(o.numpy(), (1, 2, 0)).astype(dtype)
-        if config.channel_first:
-          o = np.transpose(o, (2, 0, 1))
+          o = resize_image(o, (height, width), mode=mode).numpy()
+        if not config.channel_first:
+          o = np.transpose(o, (1, 2, 0)).astype(dtype)
         if config.invert_color:
           o = 255 - o
       elif config.type == 'scalar':

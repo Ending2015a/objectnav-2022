@@ -7,6 +7,7 @@ import numpy as np
 import gym
 import habitat
 from rlchemy import registry
+from habitat.sims.habitat_simulator.actions import HabitatSimActions
 # --- my module ---
 from kemono.planner.base import PlanState
 
@@ -53,7 +54,7 @@ class PlannerWrapper(gym.Wrapper):
     obs, rew, done, info = self.env.step(action, obs=obs)
     obs, plan_state = self.get_observations_and_plan_state(obs, action)
     info = self.get_info(obs, info, plan_state)
-    rew = self.get_reward(obs, rew, done, info, plan_state)
+    rew = self.get_reward(obs, action, rew, done, info, plan_state)
     return obs, rew, done, info
 
   def reset(self, obs=None):
@@ -119,9 +120,9 @@ class PlannerWrapper(gym.Wrapper):
     info['plan'] = plan_state
     return info
 
-  def get_reward(self, obs, rew, done, info, plan_state):
+  def get_reward(self, obs, act, rew, done, info, plan_state):
     if self.enable_reward:
-      return self.reward_fn(obs, rew, done, info, plan_state)
+      return self.reward_fn(self, obs, act, rew, done, info, plan_state)
     else:
       return rew
 
@@ -129,19 +130,25 @@ class PlannerWrapper(gym.Wrapper):
     return self.env.render(mode=mode)
 
 class Reward():
-  reward_range = (-1.0, 4.0)
+  reward_range = (-1.0, 5.0)
   slack_reward = -1e-3
-  success_reward = 3.0
+  success_reward = 5.0
   max_delta = 0.3
   def __call__(
     self,
+    env,
     obs,
+    act,
     rew,
     done,
     info,
     plan_state: PlanState
   ):
-    reward = self.slack_reward
+    mult = 1.0
+    if env.to_habitat_action(act) == \
+        HabitatSimActions.MOVE_FORWARD:
+      mult = 2.0
+    reward = self.slack_reward * mult
     plan = plan_state.plan
     old_plan = plan_state.old_plan
     if plan_state.archived is not None:

@@ -23,6 +23,15 @@ CONFIG_PATH = '/src/configs/test/test_hm3d.val_mini.rgbd.yaml'
 OMEGACONF_PATH = '/src/configs/kemono/kemono_train_sac2.yaml'
 ENV_ID = 'HabitatEnv-v0'
 
+
+def render_scene(obs):
+  small_map = obs['small_map']
+  for i in range(len(small_map)):
+    layer_map = np.stack((small_map[i],)*3, axis=-1)
+    layer_map = 255 - (layer_map * 255).astype(np.uint8)
+    cv2.imshow(f'layer {i} map', layer_map)
+
+
 def example():
   config = kemono.utils.load_config(OMEGACONF_PATH, resolve=True)
   habitat_config = kemono.get_config(CONFIG_PATH)
@@ -50,6 +59,10 @@ def example():
     env,
     **config.envs.semantic_map_observer2
   )
+  env = CleanObsWrapper(
+    env,
+    **config.envs.clean_obs
+  )
   controller = ManualController(env)
 
   print("Environment creation successful")
@@ -60,11 +73,13 @@ def example():
 
     # --- show observations ---
     print('Observations:')
-    print(f'  Object goal: {observations["objectgoal"]}')
-    print(f"  GPS: {observations['gps']}")
-    print(f"  compass: {observations['compass']}")
-    cv2.imshow('small_map_obs', observations['small_map'][...,::-1])
+    #print(f'  Object goal: {observations["objectgoal"]}')
+    # print(f"  GPS: {observations['gps']}")
+    # print(f"  compass: {observations['compass']}")
     env.render("interact")
+    render_scene(observations)
+
+
 
     print("Agent stepping around inside environment.")
 
@@ -76,14 +91,14 @@ def example():
       count_steps += 1
       # --- show observations ---
       print('Observations:')
-      print(f"  GPS: {observations['gps']}")
-      print(f"  compass: {observations['compass']}")
-      print(f"  plan: ({observations['plan_distance']}, "
-            f"{observations['plan_angle']}, "
-            f"{observations['plan_time']})")
+      #print(f"  GPS: {observations['gps']}")
+      #print(f"  compass: {observations['compass']}")
+      # print(f"  plan: ({observations['plan_distance']}, "
+      #       f"{observations['plan_angle']}, "
+      #       f"{observations['plan_time']})")
       print(f"Rewards: {reward}")
-      cv2.imshow('small_map_obs', observations['small_map'][...,::-1])
       env.render("interact")
+      render_scene(observations)
 
       metrics = info["metrics"]
       goal = info["goal"]

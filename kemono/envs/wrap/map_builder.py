@@ -580,6 +580,7 @@ class SemanticMapBuilderWrapper(gym.Wrapper):
       layers_labels = layers_labels,
       color_palette = color_palette
     )
+    self.color_palette = color_palette
     self.goal_mapping = goal_mapping
     self._cached_maps = None
     self._goals = None
@@ -767,6 +768,7 @@ class SemanticMapObserver(gym.Wrapper):
     else:
       value_map = self.map_builder.get_value_map(
         base_map,
+        colorize = False,
         **asdict(map_config.smooth)
       )
     return value_map
