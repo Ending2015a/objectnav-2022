@@ -75,6 +75,10 @@ class Dataset(IterableDataset):
     return ElementDataset(element)
 
   @staticmethod
+  def from_slices(elements) -> "Dataset":
+    return SlicesDataset(elements)
+
+  @staticmethod
   def zip(datasets) -> "Dataset":
     return ZipDataset(datasets)
 
@@ -163,6 +167,15 @@ class ElementDataset(Dataset):
   def __iter__(self) -> Iterator:
     yield self.element
 
+
+class SlicesDataset(Dataset):
+  def __init__(self, elements: Any):
+    self.elements = elements
+    self.n_slices = len(self.elements)
+  
+  def __iter__(self) -> Iterator:
+    for i in range(self.n_slices):
+      yield self.elements[i]
 
 class RepeatDataset(Dataset):
   def __init__(
