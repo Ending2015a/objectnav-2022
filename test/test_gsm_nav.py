@@ -234,7 +234,7 @@ class Trainer():
     Returns:
       torch.Tensor: sampled noises
     """
-    if self.noise_type == 'uniform':
+    if self.noise_type == 'map':
       height, width = self.topdown_map.shape
       available_points = []
       for h in range(height):
@@ -249,6 +249,12 @@ class Trainer():
       for n in range(n_samples):
         xp.append(self.env.sim.pathfinder.get_random_navigable_point())
       xp = np.asarray(xp, dtype=np.float32)
+    elif self.noise_type == 'uniform':
+      height, width = self.topdown_map.shape
+      h = np.random.uniform(size=(n_samples,)) * height
+      w = np.random.uniform(size=(n_samples,)) * width
+      points = np.stack((w, h), axis=-1).astype(np.float32)
+      xp = self.to_3D_points(points)
     else:
       raise NotImplementedError(
           f"Noise type '{self.noise_type}' not implemented."
@@ -574,7 +580,7 @@ class Runner():
       clipnorm = 100.,
       eps = 0.1,
       loss_type = 'gsm2',
-      noise_type = 'sim',
+      noise_type = 'uniform',
     )
     # create datasets
     train_dataset = (
@@ -598,7 +604,7 @@ class Runner():
 
 
 def example():
-  vis_path = '/src/log/gsm-multi-goal/visualize/'
+  vis_path = '/src/log/gsm-multi-goal-uniform/visualize/'
   import logging
   logging.basicConfig()
   logging.root.setLevel(logging.INFO)
