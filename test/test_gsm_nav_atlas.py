@@ -128,19 +128,14 @@ class ToyNet(nn.Module):
     fuse_dim = self.cnn.output_dim + self.mlp.output_dim
     self.fuse = MLP(fuse_dim, output_dim, fuse_units)
     self.output_dim = output_dim
-    self._cached = None
 
   def forward(
     self,
     x: torch.Tensor,
-    chart: torch.Tensor,
-    reset_chart: bool = True
+    chart: torch.Tensor
   ) -> torch.Tensor:
     x_inp = self.mlp(x)
-    if self._cached is None or reset_chart:
-      x_chart = self.cnn(chart)
-    else:
-      x_chart = self._cached
+    x_chart = self.cnn(chart)
     x = torch.cat((x_inp, x_chart), dim=-1)
     return self.fuse(x)
 
@@ -159,21 +154,21 @@ class Energy(nn.Module):
     self.net = net
     self.num_classes = num_classes
 
-  def forward(self, x, cond, chart, reset_chart=True):
+  def forward(self, x, cond, chart):
     cond = cond.to(dtype=torch.int64)
     cond = nn.functional.one_hot(cond, self.num_classes)
     cond = cond.to(dtype=torch.float32)
     inp = torch.cat((x, cond), dim=-1)
-    return self.net(inp, chart, reset_chart=reset_chart)
+    return self.net(inp, chart)
 
-  def score(self, x, cond, chart, reset_chart=True):
+  def score(self, x, cond, chart):
     cond = cond.to(dtype=torch.int64)
     cond = nn.functional.one_hot(cond, self.num_classes)
     cond = cond.to(dtype=torch.float32)
     cond = cond.requires_grad_()
     x = x.requires_grad_()
     inp = torch.cat((x, cond), dim=-1)
-    logp = -self.net(inp, chart, reset_chart=reset_chart).sum()
+    logp = -self.net(inp, chart).sum()
     return torch.autograd.grad(logp, x, create_graph=True)[0]
 
   def save(self, path):
@@ -194,6 +189,7 @@ class Trainer():
     chart_size = 120,
     crop_size = 600,
     learning_rate = 1e-3,
+    n_slices = 10,
     clipnorm = 100.,
     eps = 0.05,
     loss_type = 'gsm2',
@@ -217,6 +213,7 @@ class Trainer():
     self.env = env
     self.model = model
     self.learning_rate = learning_rate
+    self.n_slices = n_slices
     self.clipnorm = clipnorm
     self.eps = eps
     self.loss_type = loss_type.lower()
@@ -345,7 +342,7 @@ class Trainer():
     """Sampling random charts
     Returns:
       torch.Tensor: sampled charts (b, 1, crop_size, crop_size)
-      torch.Tensor: center points [w, h], (b, 2)
+      np.ndarray: center points [w, h], (b, 2)
     """
     # sample center of the charts
     centers = []
@@ -361,8 +358,6 @@ class Trainer():
       crop_width = self.crop_size,
       crop_height = self.crop_size
     ) # (b, crop_size, crop_size, 2)
-    centers = torch.tensor(centers, dtype=torch.float32)
-    centers = centers.to(device=self.device)
     map_th = torch.broadcast_to(
       self.highres_topdown_map_th,
       (n_samples, 1, height, width)
@@ -371,36 +366,51 @@ class Trainer():
       image = map_th,
       grid = grid
     ) # (b, 1, h, w)
-    return charts, centers
+    return charts, centers_2D
 
   @torch.no_grad()
-  def get_random_points(self, charts, centers):
+  def get_random_points(self, charts: torch.Tensor, centers_2D: np.ndarray):
     xp = []
-    gt = []
+    gp = []
     for b_idx in range(len(charts)):
       chart = charts[b_idx, 0]
-      chart_inds = chart.nonzero().cpu().numpy()
-      center = centers[b_idx].cpu().numpy()
+      point_inds = chart.nonzero().cpu().numpy()
+      center = centers_2D[b_idx]
       height, width = chart.shape
-      # random sample index (h, w)
-      if len(chart_inds) > 0:
-        idx = np.random.randint(len(chart_inds))
-        chart_idx = chart_inds[idx]
+      # random sample index [h, w]
+      if len(point_inds) > 0:
+        idx = np.random.randint(len(point_inds), size=(self.n_slices,))
+        point_idx = point_inds[idx] # (s, 2)
       else:
-        chart_idx = np.asarray([height//2, width//2])
-      chart_idx = chart_idx / np.asarray((height, width), dtype=np.float32)
-      chart_idx = chart_idx * 2.0 - 1.0
-      # convert to (x, z)
-      x = np.asarray((chart_idx[1], 0, chart_idx[0]), dtype=np.float32)
-      g = x * np.asarray((width, 1.0, height))/2.0 * self.highres_meters_per_pixel + center
-      xp.append(chart_idx[::-1])
-      gt.append(g)
+        point_idx = [height//2, width//2]
+        point_idx = np.asarray([point_idx]*self.n_slices) # (s, 2)
+      # [x, z] (s, 2)
+      point = point_idx[...,::-1].astype(np.float32)
+      norm_point = point / np.asarray((width, height), dtype=np.float32)
+      norm_point = norm_point * 2.0 - 1.0
+      xp.append(norm_point)
+      # global point
+      half = np.asarray((width, height), dtype=np.float32) / 2.
+      g = point - half + center # (s, 2)
+      gp.append(g)
 
-    xp = np.asarray(xp, dtype=np.float32)
-    gt = np.asarray(gt, dtype=np.float32)
+      # debug
+      # fig, (ax1, ax2) = plt.subplots(figsize=(4, 6), ncols=2, dpi=300)
+      # ax1.imshow(self.highres_topdown_map)
+      # ax1.scatter(g[...,0], g[...,1], color='red', s=14)
+      # ax2.imshow(chart.cpu().numpy())
+      # ax2.scatter(point[...,0], point[...,1], color='red', s=14)
+      # plt.tight_layout()
+      # plt.show()
+
+    xp = np.asarray(xp, dtype=np.float32) # (b, s, 2)
+    gp = np.asarray(gp, dtype=np.float32) # (b, s, 2)
+    xp = xp.reshape((-1, 2)) # (b*s, 2)
+    gp = gp.reshape((-1, 2)) # (b*s, 2)
+    gp = self.highres_to_3D_points(gp)
     return (
       torch.tensor(xp).to(device=self.device),
-      torch.tensor(gt).to(device=self.device)
+      torch.tensor(gp).to(device=self.device)
     )
 
   def get_loss(self, x):
@@ -412,9 +422,17 @@ class Trainer():
     """
     if self.loss_type == 'gsm2':
       n_samples = len(x)
+      # (b, 2)
       charts, centers = self.get_random_charts(n_samples)
+      # (b*s, 2)
       xp, gt = self.get_random_points(charts, centers)
+      # (b, 1, h, w)
       charts = nn.functional.interpolate(charts, size=(self.chart_size, self.chart_size))
+      charts = torch.stack([charts] * self.n_slices, dim=1) # (b, s, 1, h, w)
+      charts = torch.flatten(charts, 0, 1) # (b*s, 1, h, w)
+      # (b,)
+      x = torch.stack([x] * self.n_slices, dim=1)
+      x = torch.flatten(x, 0, 1) # (b*s,)
       loss = self.gsm2_loss(xp, x, charts, gt)
     else:
       raise NotImplementedError(
@@ -584,19 +602,14 @@ class Runner():
     ]
     self.n_goals = len(self.goals)
     self.vis_path = vis_path
-    self.crop_size = 200
-    self.chart_size = 128
+    self.crop_size = 300
+    self.chart_size = 84
     self.render_stride = int(self.crop_size * 0.9)
 
     self.render_centers = np.array([
-      (99, 99),
-      (99, 149),
-      (299, 99),
-      (289, 149),
-      (399, 99),
-      (399, 175)
+      (44, 44),
+      (120, 36)
     ]) # (h, w)
-
 
   @property
   def habitat_env(self):
@@ -614,85 +627,83 @@ class Runner():
     return np.asarray(available_points[point_idx])
 
   def plot_energy_field(self, ax, goal_id, mask=False):
-    height, width = self.highres_topdown_map.shape
+    topdown_map = self.topdown_map[:145, :70]
+    height, width = topdown_map.shape
     energy_map = np.zeros((height, width), dtype=np.float32)
     average_map = np.zeros((height, width), dtype=np.float32)
 
     centers = np.asarray(self.render_centers, dtype=np.int64)
     centers = centers[..., ::-1].copy() # (w, h)
     b = centers.shape[0]
-    topdown_map = torch.tensor(self.highres_topdown_map, dtype=torch.float32)
+    topdown_map = torch.tensor(topdown_map, dtype=torch.float32)
     topdown_map = torch.broadcast_to(topdown_map, (b, 1, height, width))
+    crop_size = int(self.crop_size * self.highres_meters_per_pixel/self.meters_per_pixel)
     grid = dmap.utils.generate_crop_grid(
       centers,
       image_width = width,
       image_height = height,
-      crop_width = self.crop_size,
-      crop_height = self.crop_size
+      crop_width = crop_size,
+      crop_height = crop_size
     )
     tiles = dmap.utils.image_sample(topdown_map, grid).numpy() # (b, 1, h, w)
 
     for tile_idx, (tile, center) in enumerate(zip(tiles, centers)):
-      print(f'Rendering energy, {tile_idx+1}/{len(tiles)}...')
-      # prepare network inputs
-      tile = tile[0] # (h, w)
+      print(f"Rendering energy, {tile_idx+1}/{len(tiles)}...")
+      tile = tile[0]
       tile_height, tile_width = tile.shape
       chart = torch.tensor(tile, device=self.trainer.device).to(dtype=torch.float32)
       chart = chart.reshape((1, 1, tile_height, tile_width))
       # resize chart to input size
       chart = nn.functional.interpolate(chart, size=(self.chart_size, self.chart_size))
       cond = torch.tensor([goal_id], device=self.trainer.device)
-      reset_chart = True
       for h in range(tile_height):
         for w in range(tile_width):
           gw = center[0] + w - tile_width//2
           gh = center[1] + h - tile_height//2
           # the padded size will out of the bounds
-          if gh < height and gw < width:
+          if gh >= 0 and gw >= 0 and gh < height and gw < width:
             if (not mask) or (tile[h, w]):
               xp = np.asarray((w, h), dtype=np.float32)
               norm = np.asarray((tile_width, tile_height), dtype=np.float32)
               norm_xp = xp / norm * 2.0 - 1.0
               norm_xp = norm_xp.reshape((1, 2))
               norm_xp = torch.from_numpy(norm_xp).to(device=self.trainer.device)
-              e = self.trainer.model(norm_xp, cond, chart, reset_chart).detach().cpu().numpy()
+              e = self.trainer.model(norm_xp, cond, chart).detach().cpu().numpy()
               energy_map[gh, gw] += e
             average_map[gh, gw] += 1
-          reset_chart = False
     energy_map = np.divide(
       energy_map, average_map,
       out = np.zeros_like(energy_map),
       where = (average_map != 0)
     )
 
-    target_height, target_width = self.topdown_map.shape
-    energy_map = utils.resize_image(energy_map, (target_height, target_width)).numpy()
-
     # draw energy
     ax.grid(False)
     ax.axis('off')
-    ax.imshow(energy_map[:145, :70], cmap=plt.cm.viridis)
+    ax.imshow(energy_map, cmap=plt.cm.viridis)
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
     ax.set_title("Estimated energy", fontsize=16)
 
   def plot_score_field(self, ax, goal_id, mask=False):
-    height, width = self.highres_topdown_map.shape
+    topdown_map = self.topdown_map[:145, :70]
+    height, width = topdown_map.shape
     score_map = np.zeros((height, width, 2), dtype=np.float32)
     average_map = np.zeros((height, width, 2), dtype=np.float32)
 
     centers = np.asarray(self.render_centers, dtype=np.int64)
     centers = centers[..., ::-1].copy() # (w, h)
     b = centers.shape[0]
-    topdown_map = torch.tensor(self.highres_topdown_map, dtype=torch.float32)
+    topdown_map = torch.tensor(topdown_map, dtype=torch.float32)
     topdown_map = torch.broadcast_to(topdown_map, (b, 1, height, width))
+    crop_size = int(self.crop_size * self.highres_meters_per_pixel/self.meters_per_pixel)
     grid = dmap.utils.generate_crop_grid(
       centers,
       image_width = width,
       image_height = height,
-      crop_width = self.crop_size,
-      crop_height = self.crop_size
+      crop_width = crop_size,
+      crop_height = crop_size
     )
     tiles = dmap.utils.image_sample(topdown_map, grid).numpy() # (b, 1, h, w)
 
@@ -706,7 +717,6 @@ class Runner():
       # resize chart to input size
       chart = nn.functional.interpolate(chart, size=(self.chart_size, self.chart_size))
       cond = torch.tensor([goal_id], device=self.trainer.device)
-      reset_chart = True
       for h in range(tile_height):
         for w in range(tile_width):
           gw = center[0] + w - tile_width//2
@@ -719,25 +729,16 @@ class Runner():
               norm_xp = xp / norm * 2.0 - 1.0
               norm_xp = norm_xp.reshape((1, 2))
               norm_xp = torch.from_numpy(norm_xp).to(device=self.trainer.device)
-              s = self.trainer.model.score(norm_xp, cond, chart, reset_chart).detach().cpu().numpy()
+              s = self.trainer.model.score(norm_xp, cond, chart).detach().cpu().numpy()
               score_map[gh, gw] += np.asarray((s[0][1], s[0][0]), dtype=np.float32)
             average_map[gh, gw] += 1
-          reset_chart = False
     score_map = np.divide(
       score_map, average_map,
       out = np.zeros_like(score_map),
       where = (average_map != 0)
     )
-    target_height, target_width = self.topdown_map.shape
-
-    score_map = np.transpose(score_map, (2, 0, 1))
-    score_map = utils.resize_image(score_map, (target_height, target_width)).numpy()
-    score_map = np.transpose(score_map, (1, 2, 0))
-    score_map = score_map[:145, :70]
-
-    mesh = np.meshgrid(np.arange(target_height), np.arange(target_width), indexing='ij')
+    mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
     mesh = np.stack(mesh, axis=-1).astype(np.float32)
-    mesh = mesh[:145, :70]
     mesh = mesh.reshape((-1, 2))
     score_map = score_map.reshape((-1, 2))
     mask = np.logical_and(score_map[..., 0]==0, score_map[..., 1]==0)
@@ -751,7 +752,7 @@ class Runner():
       angles='xy', color='b')
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
     ax.set_title("Estimated score", fontsize=16)
 
   def plot_ground_truth(self, ax, goal_id):
@@ -781,7 +782,7 @@ class Runner():
       angles='xy', color='b')
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
     ax.set_title("Ground truth", fontsize=16)
 
 
@@ -836,6 +837,7 @@ class Runner():
       chart_size = chart_size,
       crop_size = crop_size,
       learning_rate = 1e-3,
+      n_slices = 10,
       clipnorm = 100.,
       eps = 0.1,
       loss_type = 'gsm2',
@@ -851,14 +853,14 @@ class Runner():
       Dataset.range(self.n_goals).repeat(num_eval_batches)
     )
     # debug
-    #self.visualize()
+    self.visualize()
     #exit(0)
 
     self.trainer.learn(
       train_dataset = train_dataset,
       eval_dataset = eval_dataset,
-      n_epochs = 100,
-      batch_size = 4,
+      n_epochs = 500,
+      batch_size = 10,
       vis_callback = self.visualize
     )
 
