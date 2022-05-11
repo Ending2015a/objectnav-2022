@@ -99,7 +99,7 @@ class MLP(nn.Module):
     for out_dim in units:
       layers.extend([
         nn.Linear(in_dim, out_dim),
-        Swish(out_dim) if swish else nn.Softplus(),
+        Swish(out_dim) if swish else nn.LeakyReLU(0.01),
         nn.Dropout(.5) if dropout else nn.Identity()
       ])
       in_dim = out_dim
@@ -337,20 +337,58 @@ class Trainer():
     loss = loss.mean()/2.
     return loss
 
+  # @torch.no_grad()
+  # def get_random_charts(self, n_samples):
+  #   """Sampling random charts
+  #   Returns:
+  #     torch.Tensor: sampled charts (b, 1, crop_size, crop_size)
+  #     np.ndarray: center points [w, h], (b, 2)
+  #   """
+  #   # sample center of the charts
+  #   centers = []
+  #   for n in range(n_samples):
+  #     centers.append(self.env.sim.pathfinder.get_random_navigable_point())
+  #   centers = np.asarray(centers, dtype=np.float32)
+  #   centers_2D = self.highres_to_2D_points(centers) # (w, h)
+  #   height, width = self.highres_topdown_map.shape
+  #   grid = dmap.utils.generate_crop_grid(
+  #     centers_2D,
+  #     image_width = width,
+  #     image_height = height,
+  #     crop_width = self.crop_size,
+  #     crop_height = self.crop_size
+  #   ) # (b, crop_size, crop_size, 2)
+  #   map_th = torch.broadcast_to(
+  #     self.highres_topdown_map_th,
+  #     (n_samples, 1, height, width)
+  #   )
+  #   charts = dmap.utils.image_sample(
+  #     image = map_th,
+  #     grid = grid
+  #   ) # (b, 1, h, w)
+  #   return charts, centers_2D
+
   @torch.no_grad()
   def get_random_charts(self, n_samples):
-    """Sampling random charts
-    Returns:
-      torch.Tensor: sampled charts (b, 1, crop_size, crop_size)
-      np.ndarray: center points [w, h], (b, 2)
-    """
-    # sample center of the charts
-    centers = []
-    for n in range(n_samples):
-      centers.append(self.env.sim.pathfinder.get_random_navigable_point())
-    centers = np.asarray(centers, dtype=np.float32)
-    centers_2D = self.highres_to_2D_points(centers) # (w, h)
     height, width = self.highres_topdown_map.shape
+    if self.noise_type == 'map':
+      available_points = []
+      for h in range(height):
+        for w in range(width):
+          if self.highres_topdown_map[h, w]:
+            available_points.append((w, h))
+      inds = np.random.randint(len(available_points), size=(n_samples,))
+      centers_2D = np.asarray(available_points, dtype=np.float32)[inds]
+    elif self.noise_type == 'sim':
+      centers = []
+      for n in range(n_samples):
+        centers.append(self.env.sim.pathfinder.get_random_navigable_point())
+      centers = np.asarray(centers, dtype=np.float32)
+      centers_2D = self.highres_to_2D_points(centers)
+    else:
+      raise NotImplementedError(
+        f"Noise type '{self.noise_type}' not implemented."
+      )
     grid = dmap.utils.generate_crop_grid(
       centers_2D,
       image_width = width,
@@ -367,6 +405,7 @@ class Trainer():
       grid = grid
     ) # (b, 1, h, w)
     return charts, centers_2D
+    
 
   @torch.no_grad()
   def get_random_points(self, charts: torch.Tensor, centers_2D: np.ndarray):
@@ -594,11 +633,11 @@ class Runner():
     # generate random goals 2D
     self.goals = [
       self.sample_points(2),
-      #self.sample_points(4),
-      #self.sample_points(3),
-      #self.sample_points(2),
-      #self.sample_points(5),
-      #self.sample_points(8)
+      self.sample_points(4),
+      self.sample_points(3),
+      self.sample_points(2),
+      self.sample_points(5),
+      self.sample_points(8)
     ]
     self.n_goals = len(self.goals)
     self.vis_path = vis_path
@@ -813,8 +852,8 @@ class Runner():
       plt.close('all')
 
   def run(self):
-    num_train_samples = 400000
-    num_eval_samples = 40000
+    num_train_samples = 40000
+    num_eval_samples = 4000
     num_train_batches = num_train_samples // self.n_goals
     num_eval_batches = num_eval_samples // self.n_goals
     input_dim = 2 + self.n_goals
@@ -838,10 +877,10 @@ class Runner():
       crop_size = crop_size,
       learning_rate = 1e-3,
       n_slices = 10,
-      clipnorm = 100.,
+      clipnorm = 0.5,
       eps = 0.1,
       loss_type = 'gsm2',
-      noise_type = 'sim',
+      noise_type = 'map',
     )
     # create datasets
     train_dataset = (
@@ -860,7 +899,8 @@ class Runner():
       train_dataset = train_dataset,
       eval_dataset = eval_dataset,
       n_epochs = 500,
-      batch_size = 10,
+      batch_size = 100,
+      vis_freq = 10,
       vis_callback = self.visualize
     )
 
