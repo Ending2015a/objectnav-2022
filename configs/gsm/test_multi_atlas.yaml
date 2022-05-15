@@ -1,0 +1,80 @@
+
+habitat_config: "/src/configs/test/test_hm3d.val_mini.rgbd.yaml"
+
+goal_mapping:
+  0: chair
+  1: bed
+  2: plant
+  3: toilet
+  4: tv_monitor
+  5: sofa
+
+
+task:
+  model:
+    chart_size: 128
+    input_dim: 8
+    mlp_units: [256]
+    fuse_units: [256, 256]
+    n_goals: 6
+    sigma: 1.0
+
+  optimizer:
+    learning_rate: 1e-3
+
+  train_dataset:
+    root_path: /src/logs/gsm_dataset/val_mini/
+    n_slices: 10
+
+  eval_dataset:
+    root_path: /src/logs/gsm_dataset/val_mini/
+    n_slices: 10
+    shuffle: true
+    max_length: 100
+
+  pred_dataset:
+    root_path: /src/logs/gsm_dataset/val_mini/
+    n_slices: 1
+    shuffle: true
+    max_length: 10
+    get_chart_gt: true
+
+  batch_size: 100
+  num_workers: 2
+  vis_freq: 10
+
+checkpoint:
+  monitor: val/loss
+  save_last: true
+  save_top_k: 40
+  every_n_epochs: 1
+  verbose: true
+  mode: min
+
+trainer:
+  max_epochs: 500
+  accelerator: gpu
+  devices: [0]
+  default_root_dir: /src/logs/kemono_gsm/
+  gradient_clip_val: 0.5
+  sync_batchnorm: true
+  strategy: ddp_find_unused_parameters_false
+
+# === sampler config ===
+
+num_episodes: 2
+
+sampler:
+  goal_mapping: ${goal_mapping}
+  meters_per_pixel_low: 0.1
+  meters_per_pixel_high: 0.03
+  eps: 0.1
+
+sample:
+  dirpath: /src/logs/gsm_dataset/val_mini/
+  max_charts: 3
+  min_points: 10 # sample with points least than this number is discarded
+  chart_width: 600
+  chart_height: 600
+  get_global_gt: false
+  masking: true

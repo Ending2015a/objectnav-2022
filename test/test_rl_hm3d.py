@@ -59,15 +59,21 @@ def example():
     env,
     **config.envs.semantic_map_observer2
   )
-  env = CleanObsWrapper(
-    env,
-    **config.envs.clean_obs
-  )
+  # env = CleanObsWrapper(
+  #   env,
+  #   **config.envs.clean_obs
+  # )
   controller = ManualController(env)
-
   print("Environment creation successful")
   while True:
     observations = env.reset()
+    topdown_view = env.habitat_env.sim.pathfinder.get_topdown_view(
+      0.03, env.habitat_env.sim.get_agent(0).state.position[1]
+    )
+    topdown_map = np.stack((topdown_view.astype(np.uint8),)*3, axis=-1) * 255
+    cv2.imshow('Topdown map', topdown_map)
+
+
     controller.reset()
     print('Episode id: {}, scene id: {}'.format(env.current_episode.episode_id, env.current_episode.scene_id))
 
@@ -77,9 +83,7 @@ def example():
     # print(f"  GPS: {observations['gps']}")
     # print(f"  compass: {observations['compass']}")
     env.render("interact")
-    render_scene(observations)
-
-
+    #render_scene(observations)
 
     print("Agent stepping around inside environment.")
 
@@ -98,7 +102,7 @@ def example():
       #       f"{observations['plan_time']})")
       print(f"Rewards: {reward}")
       env.render("interact")
-      render_scene(observations)
+      #render_scene(observations)
 
       metrics = info["metrics"]
       goal = info["goal"]
