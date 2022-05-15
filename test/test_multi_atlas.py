@@ -1,10 +1,12 @@
 # --- built in ---
 import os
+import copy
 import glob
 from typing import (
   Any,
   Dict,
   List,
+  Tuple,
   Optional
 )
 # --- 3rd party ---
@@ -19,6 +21,7 @@ from omegaconf import OmegaConf
 import einops
 import rlchemy
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 # --- my module ---
 import kemono
 
@@ -47,12 +50,14 @@ class GsmDataset(Dataset):
     shuffle: bool = False,
     max_length: Optional[int] = None,
     get_chart_gt: bool = False,
+    img_size: Optional[Tuple[int, int]] = None
   ):
     self.root_path = root_path
     self.n_slices = n_slices
     self.shuffle = shuffle
     self.max_length = max_length
     self.get_chart_gt = get_chart_gt
+    self.img_size = img_size
 
     self.sample_list = glob_filenames(root_path, SAMPLE_GLOB_PATTERN)
     self.id_list = np.arange(len(self.sample_list))
@@ -62,7 +67,7 @@ class GsmDataset(Dataset):
       self.id_list = self.id_list[:max_length]
 
   def __len__(self) -> int:
-    return len(self.sample_list)
+    return len(self.id_list)
 
   @torch.no_grad()
   def __getitem__(self, idx: int):
@@ -92,6 +97,14 @@ class GsmDataset(Dataset):
     points = np.asarray(points[inds], dtype=np.float32)
     distances = np.asarray(distances[inds], dtype=np.float32)
     gradients = np.asarray(gradients[inds], dtype=np.float32)
+
+    if self.img_size is not None:
+      charts = kemono.gsm.utils.resize_image(
+        charts,
+        size = self.img_size,
+        mode = 'nearest'
+      )
+
     # prepare data
     data = {
       'objectgoals': objectgoals, # (s,)
@@ -103,6 +116,14 @@ class GsmDataset(Dataset):
     if self.get_chart_gt:
       # (h, w, 3)
       chart_gt = np.asarray(gsm_data.chart_gt, dtype=np.float32)
+      if self.img_size is not None:
+        chart_gt = einops.rearrange(chart_gt, 'h w c -> 1 c h w')
+        chart_gt = kemono.gsm.utils.resize_image(
+          chart_gt,
+          size = self.img_size,
+          mode = 'nearest'
+        )
+        chart_gt = einops.rearrange(chart_gt, '1 c h w -> h w c')
       data['chart_gt'] = chart_gt
     return data
 
@@ -244,19 +265,12 @@ class Energy(nn.Module):
     logp = -self.net(inp, chart).sum()
     return torch.autograd.grad(logp, x, create_graph=True)[0]
 
-  def save(self, path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    torch.save(self.state_dict(), path)
-
-  def load(self, path):
-    self.load_state_dict(torch.load(path))
-    return self
-
 
 class GsmTask(pl.LightningModule):
   def __init__(
     self,
-    config
+    config,
+    inference_only: bool = False
   ):
     super().__init__()
     config = OmegaConf.create(config)
@@ -265,8 +279,10 @@ class GsmTask(pl.LightningModule):
     # ---
     self.config = config
     self.setup_model()
-    self.setup_dataset()
-  
+    if not inference_only:
+      self.setup_dataset()
+    self.color_norm = None
+
   def setup_model(self):
     config = self.config.model
     net = ToyNet(
@@ -289,7 +305,7 @@ class GsmTask(pl.LightningModule):
   def configure_optimizers(self):
     optim = torch.optim.Adam(
       self.model.parameters(),
-      lr = self.config.train.learning_rate
+      lr = self.config.optimizer.learning_rate
     )
     return optim
 
@@ -326,8 +342,7 @@ class GsmTask(pl.LightningModule):
     chart = nn.functional.interpolate(
       chart,
       size = (chart_size, chart_size),
-      mode = 'nearest',
-      align_corners = True
+      mode = 'nearest'
     )
     return x, cond, chart
 
@@ -350,7 +365,6 @@ class GsmTask(pl.LightningModule):
     x, cond, chart = self._forward_preprocess(x, cond, chart)
     return self.model.score(x, cond, chart)
 
-  @torch.no_grad()
   def predict(
     self,
     x,
@@ -414,6 +428,7 @@ class GsmTask(pl.LightningModule):
     batch: Any,
     batch_idx: int
   ) -> torch.Tensor:
+    torch.set_grad_enabled(True)
     cond = batch['objectgoals'].flatten(0, 1) # (b*s,)
     chart = batch['charts'].flatten(0, 1) # (b*s, 1, h, w)
     x = batch['points'].flatten(0, 1) # (b*s, 2)
@@ -438,48 +453,109 @@ class GsmTask(pl.LightningModule):
 
     return loss
 
-  def _preview_chart_gt(self, chart_gt):
+  def _plot_energy(self, ax, energy_map, title=None):
+    cmap = copy.copy(plt.cm.viridis)
+    cmap.set_bad(color='black')
+    ax.imshow(energy_map, cmap=cmap, interpolation='nearest')
+    if title is not None:
+      ax.set_title(title, fontsize='xx-large')
+
+  def _plot_score(self, ax, score_map, chart, title=None):
+    score_map[np.isinf(score_map)] = 0
+    score_map[np.isnan(score_map)] = 0
+    height, width = score_map.shape[:-1]
+    mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
+    mesh = np.stack(mesh, axis=-1).astype(np.float32)
+    mesh = mesh.reshape((-1, 2))
+    score_map = score_map.reshape((-1, 2))
+    mask = np.logical_and(score_map[...,0]==0, score_map[...,1]==0)
+    mesh = mesh[~mask]
+    score_map = score_map[~mask]
+    ax.imshow(chart, cmap='hot', interpolation='nearest')
+    theta = np.arctan2(score_map[...,1], score_map[...,0])
+
+    # make score color map
+    if self.color_norm is None:
+      ph = np.linspace(0, 2*np.pi, 13)
+      u = np.cos(ph)
+      v = np.sin(ph)
+      colors = np.arctan2(v, u)
+      self.color_norm = Normalize()
+      self.color_norm.autoscale(colors)
+
+    # plot vector field
+    ax.quiver(
+      mesh[...,1], mesh[...,0],
+      score_map[...,0], score_map[...,1],
+      color = plt.cm.hsv(self.color_norm(theta)),
+      angles = 'xy',
+      width = 0.001
+    )
+    if title is not None:
+      ax.set_title(title, fontsize='xx-large')
 
 
   def _preview_predictions(self, pred_idx: int):
     """Plot samples"""
+    torch.set_grad_enabled(True)
     data = self.predset[pred_idx]
     cond = data['objectgoals'] # (1,)
     chart = data['charts'] # (1, 1, h, w)
     chart_gt = data['chart_gt'] # (h, w, 3)
     height, width = chart_gt.shape[:-1]
     rsize = np.asarray((width, height), dtype=np.float32)
-    energy_map = np.zeros((height, width), dtype=np.float32)
+    energy_map = np.full((height, width), np.inf, dtype=np.float32)
     score_map = np.zeros((height, width, 2), dtype=np.float32)
     for h in range(height):
       coords = []
       xs = []
       for w in range(width):
-        if chart[h, w]:
+        if chart[0, 0, h, w]:
           x = np.asarray((w, h), dtype=np.float32)
           x = x / rsize * 2.0 - 1.0
           xs.append(x)
           coords.append(w)
       if len(coords) == 0:
         continue
+
       _x = torch.tensor(xs, dtype=torch.float32, device=self.device)
       batch_size = _x.shape[0]
       _cond = einops.repeat(cond, '1 -> b', b=batch_size)
-      _chart = einops.repeat(cond, '1 ... -> b ...', b=batch_size)
+      _chart = einops.repeat(chart, '1 1 h w -> b 1 h w', b=batch_size)
       _e, _s = self.predict(_x, _cond, _chart, get_score=True)
+      # _e: (b, 1)
+      # _s: (b, 2)
+      _e = _e.squeeze(-1)
       for c, e, s in zip(coords, _e, _s):
         energy_map[h, c] = e
-        score_map[h, c] = np.asarray((s[1], s[0]), dtype=np.float32)
-    
-    fig, axs = plt.subplots(figsize=(6, 3), ncols=2, dpi=300)
+        score_map[h, c] = s
 
-    
-    
-    mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
-    mesh = np.stack(mesh, axis=-1).astype(np.float32)
+    fig, axs = plt.subplots(
+      figsize=(12, 12),
+      ncols=2, nrows=2,
+      dpi=150,
+      sharex = True,
+      sharey = True
+    )
 
-
-
+    dist_map_gt = chart_gt[..., 0:1]
+    grad_map_gt = chart_gt[..., 1:]
+    # calculate ground truth score
+    energy_map_gt = dist_map_gt[...,0] ** 2
+    score_map_gt = -dist_map_gt * grad_map_gt
+    self._plot_energy(axs[0][0], energy_map_gt, 'Ground truth energy')
+    self._plot_score(axs[0][1], score_map_gt, chart[0,0], 'Ground truth score')
+    self._plot_energy(axs[1][0], energy_map, 'Predicted energy')
+    self._plot_score(axs[1][1], score_map, chart[0,0], 'Predicted score')
+    plt.tight_layout()
+    path = os.path.join(
+      self.logger.log_dir,
+      f'predictions/epoch_{self.current_epoch}',
+      f'sample_{pred_idx}.png'
+    )
+    rlchemy.utils.safe_makedirs(filepath=path)
+    fig.savefig(path, bbox_inches='tight', dpi=300, facecolor='white')
+    plt.close('all')
 
   def on_save_checkpoint(self, checkpoint):
     if self.trainer.is_global_zero:
@@ -502,7 +578,6 @@ def main(args):
   model = GsmTask(conf.task)
 
   checkpoint_callback = pl.callbacks.ModelCheckpoint(
-    monitor = 'val/loss',
     **conf.checkpoint
   )
   trainer = pl.Trainer(

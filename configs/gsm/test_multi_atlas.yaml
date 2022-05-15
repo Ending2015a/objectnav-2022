@@ -24,41 +24,45 @@ task:
 
   train_dataset:
     root_path: /src/logs/gsm_dataset/val_mini/
-    n_slices: 10
+    n_slices: 200
+    img_size: [128, 128]
 
   eval_dataset:
     root_path: /src/logs/gsm_dataset/val_mini/
-    n_slices: 10
+    n_slices: 200
     shuffle: true
     max_length: 100
+    img_size: [128, 128]
 
   pred_dataset:
     root_path: /src/logs/gsm_dataset/val_mini/
     n_slices: 1
     shuffle: true
-    max_length: 10
+    max_length: 6
     get_chart_gt: true
+    img_size: [128, 128]
 
-  batch_size: 100
-  num_workers: 2
-  vis_freq: 10
+  batch_size: 6
+  num_workers: 1
+  vis_freq: 100
 
 checkpoint:
   monitor: val/loss
   save_last: true
-  save_top_k: 40
-  every_n_epochs: 1
+  save_top_k: 20
+  every_n_epochs: 100
   verbose: true
   mode: min
 
 trainer:
-  max_epochs: 500
+  max_epochs: 10000
   accelerator: gpu
   devices: [0]
   default_root_dir: /src/logs/kemono_gsm/
   gradient_clip_val: 0.5
   sync_batchnorm: true
-  strategy: ddp_find_unused_parameters_false
+  #strategy: ddp_find_unused_parameters_true
+  strategy: ddp
 
 # === sampler config ===
 
