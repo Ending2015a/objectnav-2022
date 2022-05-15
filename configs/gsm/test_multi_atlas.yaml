@@ -66,7 +66,7 @@ trainer:
 
 # === sampler config ===
 
-num_episodes: 2
+num_episodes: 800
 
 sampler:
   goal_mapping: ${goal_mapping}
@@ -76,9 +76,8 @@ sampler:
 
 sample:
   dirpath: /src/logs/gsm_dataset/val_mini/
-  max_charts: 3
+  max_charts: 1000
   min_points: 10 # sample with points least than this number is discarded
   chart_width: 600
   chart_height: 600
-  get_global_gt: false
   masking: true

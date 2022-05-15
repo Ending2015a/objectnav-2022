@@ -12,6 +12,7 @@ import dungeon_maps as dmap
 import torch
 import rlchemy
 import matplotlib.pyplot as plt
+import einops
 # --- my module ---
 
 """
@@ -183,7 +184,6 @@ class GsmDataSampler():
     min_points: int = 1000,
     chart_width: int = 300,
     chart_height: int = 300,
-    get_global_gt: bool = True,
     masking: bool = False
   ):
 
@@ -193,7 +193,6 @@ class GsmDataSampler():
       min_points = min_points,
       chart_width = chart_width,
       chart_height = chart_height,
-      get_global_gt = get_global_gt,
       masking = masking
     )
 
@@ -243,22 +242,21 @@ class GsmDataSampler():
     ep_dirpath = os.path.join(dirpath, scene_id, f'ep-{episode_id:04d}')
 
     # compute map gt
-    if get_global_gt:
-      topdown_low_gt = self.compute_gt(
-        self.topdown_low,
-        self.meters_per_pixel_low,
-        masking
-      )
-      topdown_high_gt = self.compute_gt(
-        self.topdown_high,
-        self.meters_per_pixel_high,
-        masking
-      )
-      data.topdown_low_gt = topdown_low_gt
-      data.topdown_high_gt = topdown_high_gt
+    self.topdown_low_gt = self.compute_gt(
+      self.topdown_low,
+      self.meters_per_pixel_low,
+      masking
+    )
+    self.topdown_high_gt = self.compute_gt(
+      self.topdown_high,
+      self.meters_per_pixel_high,
+      masking
+    )
+    data.topdown_low_gt = self.topdown_low_gt
+    data.topdown_high_gt = self.topdown_high_gt
 
     # sample charts from topdown high
-    charts, centers = self.sample_charts(
+    charts, chart_gts, centers = self.sample_charts(
       max_charts = max_charts,
       chart_width = chart_width,
       chart_height = chart_height
@@ -267,11 +265,13 @@ class GsmDataSampler():
     total_points = 0
     total_charts = 0
 
-    for idx, (chart, center) in enumerate(zip(charts, centers)):
-      results = self.get_chart_gt(
+    for idx, (chart, chart_gt, center) in \
+        enumerate(zip(charts, chart_gts, centers)):
+      results = self.get_samples(
         chart = chart,
+        chart_gt = chart_gt,
         center = center,
-        min_points = min_points,
+        min_points = min_points
       )
       # skip empty charts
       if results is None:
@@ -395,9 +395,12 @@ class GsmDataSampler():
     centers2d = available_points[inds]
 
     map_th = torch.tensor(self.topdown_high, dtype=torch.float32)
-    map_th = torch.broadcast_to(map_th, (1, 1, height, width))
+    map_th = einops.repeat(map_th, 'h w -> 1 1 h w')
+    map_gt_th = torch.tensor(self.topdown_high_gt, dtype=torch.float32)
+    map_gt_th = einops.rearrange(map_gt_th, 'h w c -> 1 c h w')
 
     charts = []
+    chart_gts = []
     for center in centers2d:
       grid = dmap.utils.generate_crop_grid(
         center,
@@ -408,16 +411,27 @@ class GsmDataSampler():
       )
       chart = dmap.utils.image_sample(
         image = map_th,
-        grid = grid
+        grid = grid,
+        mode = 'nearest'
       ) # (1, 1, h, w)
+      chart_gt = dmap.utils.image_sample(
+        image = map_gt_th,
+        grid = grid,
+        mode = 'nearest'
+      )
       chart = chart.detach().cpu().numpy()[0, 0]
       charts.append(chart)
+      chart_gt = chart_gt.detach().cpu().numpy()[0] # (c, h, w)
+      chart_gt = einops.rearrange(chart_gt, 'c h w -> h w c')
+      chart_gts.append(chart_gt)
     charts = np.stack(charts, axis=0)
-    return charts, centers2d
+    chart_gts = np.stack(chart_gts, axis=0)
+    return charts, chart_gts, centers2d
 
-  def get_chart_gt(
+  def get_samples(
     self,
     chart: np.ndarray,
+    chart_gt: np.ndarray,
     center: np.ndarray,
     min_points: int = 10
   ) -> Optional[Tuple[np.ndarray, ...]]:
@@ -428,15 +442,14 @@ class GsmDataSampler():
     if len(point_inds) < min_points:
       # discard this sample
       return
-    xp = point_inds[...,::-1].astype(np.float32) # [w, h]
+    xp = point_inds[...,::-1].astype(np.int64) # [w, h]
+    dist = chart_gt[xp[...,1], xp[...,0], 0]
+    grad = chart_gt[xp[...,1], xp[...,0], 1:]
+
     rsize = np.asarray((width, height), dtype=np.float32)
-
     half = rsize / 2.
-    glb_xp = xp - half + center.astype(np.float32)
+    glb_xp = xp.astype(np.float32) - half + center.astype(np.float32)
     glb_xp3d = self.to_3D_points(glb_xp, self.meters_per_pixel_high)
-
-    # calculate geodesic distance and its grad
-    dist, grad = self.compute_geodesic_and_grads(glb_xp3d, self.goals)
 
     # filter out invalid points
     res = []
