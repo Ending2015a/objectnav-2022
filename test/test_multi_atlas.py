@@ -76,7 +76,7 @@ class GsmDataset(Dataset):
 
   def _get_sample(self, sample_id: int):
     sample_path = os.path.join(self.root_path, self.sample_list[sample_id])
-    gsm_data = kemono.gsm.GsmData.load(sample_path)
+    gsm_data = kemono.atlas.ChartData.load(sample_path)
     objectgoal = np.asarray(gsm_data.objectgoal, dtype=np.int64)
     chart = np.asarray(gsm_data.chart, dtype=np.float32)
     points = np.asarray(gsm_data.points, dtype=np.float32)
@@ -99,7 +99,7 @@ class GsmDataset(Dataset):
     gradients = np.asarray(gradients[inds], dtype=np.float32)
 
     if self.img_size is not None:
-      charts = kemono.gsm.utils.resize_image(
+      charts = kemono.atlas.utils.resize_image(
         charts,
         size = self.img_size,
         mode = 'nearest'
@@ -118,7 +118,7 @@ class GsmDataset(Dataset):
       chart_gt = np.asarray(gsm_data.chart_gt, dtype=np.float32)
       if self.img_size is not None:
         chart_gt = einops.rearrange(chart_gt, 'h w c -> 1 c h w')
-        chart_gt = kemono.gsm.utils.resize_image(
+        chart_gt = kemono.atlas.utils.resize_image(
           chart_gt,
           size = self.img_size,
           mode = 'nearest'
@@ -561,7 +561,7 @@ class GsmTask(pl.LightningModule):
     if self.trainer.is_global_zero:
       if self.current_epoch % self.config.vis_freq == 0:
         num_samples = len(self.predset)
-        with kemono.gsm.utils.evaluate(self):
+        with kemono.atlas.utils.evaluate(self):
           for n in range(num_samples):
             self._preview_predictions(n)
 

@@ -11,7 +11,10 @@ import numpy as np
 import torch
 from torch import nn
 from contextlib import contextmanager
+import dungeon_maps as dmap
+import einops
 # --- my module ---
+
 
 def split_tiles(
   image: np.ndarray,
@@ -136,3 +139,87 @@ def resize_image(
   if not is_tensor:
     return t.cpu().numpy()
   return t
+
+
+def get_topdown_map(
+  env: habitat.Env,
+  meters_per_pixel: float = 0.03,
+  to_current: bool = False,
+  device = 'cpu'
+):
+  from habitat.utils.geometry_utils import (
+    quaternion_from_coeff,
+    quaternion_rotate_vector,
+  )
+  from habitat.tasks.utils import cartesian_to_polar
+
+  map_res = meters_per_pixel
+  if to_current:
+    agent = env.sim.get_agent(0)
+    position = agent.state.position
+    rotation = agent.state.rotation
+  else:
+    episode = env.current_episode
+    position = np.asarray(episode.start_position, dtype=np.float32)
+    rotation = quaternion_from_coeff(episode.start_rotation)
+
+  topdown_view = env.sim.pathfinder.get_topdown_view(map_res, position[1])
+  bounds = env.sim.pathfinder.get_bounds()
+  px = (position[0] - bounds[0][0]) / map_res
+  pz = (position[2] - bounds[0][2]) / map_res
+  # calculate world heading
+  direction_vector = np.array([0., 0., -1])
+  heading_vector = quaternion_rotate_vector(rotation, direction_vector)
+  phi = cartesian_to_polar(-heading_vector[2], heading_vector[0])[1]
+  # create map projector
+  # the map projector state is matched to the world state
+  height, width = topdown_view.shape
+  proj = dmap.MapProjector(
+    width = width,
+    height = height,
+    hfov = env._config.SIMULATOR.DEPTH_SENSOR.HFOV,
+    cam_pose = np.array([0., 0., phi]), # invert cam pose
+    width_offset = px, # agent start pixel
+    height_offset = height-1 - pz, # the height is inverted
+    cam_pitch = 0.0,
+    cam_height = 0.0,
+    map_res = map_res,
+    map_width = width,
+    map_height = height,
+    to_global = False, # local: agent location is the origin
+    device = device
+  )
+  # convert to tensor
+  topdown_view_th = torch.tensor(topdown_view, dtype=torch.float32)
+  topdown_view_th = einops.repeat(topdown_view_th, 'h w -> 1 1 h w')
+  topdown_map = dmap.TopdownMap(
+    topdown_map = topdown_view_th,
+    height_map = topdown_view_th,
+    mask = (topdown_view_th > 0.0),
+    map_projector = proj
+  )
+  return topdown_map
+
+def topdown_map_to_global_space(
+  topdown_map: dmap.TopdownMap,
+  meters_per_pixel: int
+):
+  # rotate
+  topdown_map = dmap.maps.fuse_topdown_maps(
+    topdown_map,
+    map_projector = topdown_map.proj.clone(
+      map_res = meters_per_pixel,
+      cam_pose = np.array([0., 0., 0.]),
+      to_global = True
+    )
+  )
+  # one can visualize the topdown map with the following code
+  # camera_pos = topdown_map.get_camera().cpu().numpy()[0]
+  # topdown_view = topdown_map.height_map.cpu().numpy()[0, 0]
+  # topdown_view[~np.isinf(topdown_view)] = 1.0
+  # topdown_view[np.isinf(topdown_view)] = 0.0
+  # plt.figure(figsize=(3, 6), dpi=300)
+  # plt.imshow(topdown_view, cmap='hot', interpolation='nearest')
+  # plt.scatter(camera_pos[0], camera_pos[1], color='red')
+  # plt.show()
+  return topdown_map
