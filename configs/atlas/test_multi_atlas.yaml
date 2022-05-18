@@ -9,15 +9,37 @@ goal_mapping:
   4: tv_monitor
   5: sofa
 
+num_classes: 6
 
 task:
-  model:
-    chart_size: 128
-    input_dim: 8
-    mlp_units: [256]
-    fuse_units: [256, 256]
-    n_goals: 6
-    sigma: 1.0
+  toy_net:
+    x_config:
+      _type_: 'identity'
+    cond_config:
+      _type_: 'one_hot'
+      num_classes: ${num_classes}
+    vec_config:
+      _type_: 'mlp'
+      mlp_units: [256]
+      use_swish: true
+      final_activ: true
+    chart_config:
+      _type_: 'nature_cnn'
+      mlp_units: [512]
+      use_swish: true
+      final_activ: true
+    fuse_config:
+      _type_: 'mlp'
+      mlp_units: [256, 256, 1]
+      use_swish: true
+      final_activ: false
+
+  num_classes: ${num_classes}
+  chart_size: 128
+  sigma: 1.0
+  batch_size: 32
+  num_workers: 1
+  vis_freq: 100
 
   optimizer:
     learning_rate: 1e-3
@@ -42,10 +64,6 @@ task:
     get_chart_gt: true
     img_size: [128, 128]
 
-  batch_size: 32
-  num_workers: 1
-  vis_freq: 100
-
 checkpoint:
   monitor: val/loss
   save_last: true
@@ -58,7 +76,7 @@ trainer:
   max_epochs: 10000
   accelerator: gpu
   devices: [0]
-  default_root_dir: /src/logs/kemono_gsm/
+  default_root_dir: /src/logs/kemono_atlas/
   gradient_clip_val: 0.5
   sync_batchnorm: true
   #strategy: ddp_find_unused_parameters_true

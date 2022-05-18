@@ -30,7 +30,7 @@ class ChartData():
   chart_gt: ground truth values (distance, gradient) of the chart, (h, w, 3),
     [dist, v0, v1], np.float32. np.inf for invalid cells
   maps: other kind of chart, e.g. agent observed maps. Stored as a key value pair
-    key is the name of the map, value is the map. (h, w, c), Any
+    key is the name of the map, value is the map. (c, h, w), Any
   center: chart center, [w, h], (2,), np.int64
   points: normalized points on charts [w, h], -1.0~1.0, (b, 2), np.float32
   distances: ground truth distances for each point. (b,), np.float32
@@ -58,17 +58,6 @@ class ChartData():
       *flat_data,
       _struct = struct
     )
-
-    # np.savez(
-    #   filepath,
-    #   objectgoal = self.objectgoal,
-    #   chart = self.chart.astype(bool),
-    #   chart_gt = self.chart_gt.astype(np.float32),
-    #   center = self.center.astype(np.int64),
-    #   points = self.points.astype(np.float32),
-    #   distances = self.distances.astype(np.float32),
-    #   gradients = self.gradients.astype(np.float32)
-    # )
 
   @classmethod
   def load(cls, filepath) -> "ChartData":
