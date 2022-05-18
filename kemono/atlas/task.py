@@ -329,8 +329,8 @@ class AtlasTask(pl.LightningModule):
     x = batch['point'].flatten(0, 1) # (b*s, 2)
     cond = batch['objectgoal'].flatten(0, 1) # (b*s,)
     chart = batch['chart_inp'].flatten(0, 1) # (b*s, c, h, w)
-    gm = batch['distances'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
-    dgm = batch['gradients'].flatten(0, 1) # (b*s, 2)
+    gm = batch['distance'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
+    dgm = batch['gradient'].flatten(0, 1) # (b*s, 2)
     # predict score
     _, s, _ = self(x, cond, chart, get_score=True)
     # compute geodesic score
@@ -359,8 +359,8 @@ class AtlasTask(pl.LightningModule):
     x = batch['point'].flatten(0, 1) # (b*s, 2)
     cond = batch['objectgoal'].flatten(0, 1) # (b*s,)
     chart = batch['chart_inp'].flatten(0, 1) # (b*s, c, h, w)
-    gm = batch['distances'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
-    dgm = batch['gradients'].flatten(0, 1) # (b*s, 2)
+    gm = batch['distance'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
+    dgm = batch['gradient'].flatten(0, 1) # (b*s, 2)
     # predict score
     _, s, _ = self(x, cond, chart, get_score=True)
     # compute geodesic score
@@ -493,8 +493,7 @@ class AtlasTask(pl.LightningModule):
     )
     plt.tight_layout()
     path = os.path.join(
-      '/src/',
-      #self.logger.log_dir,
+      self.logger.log_dir,
       f'predictions/epoch_{self.current_epoch}',
       f'sample_{pred_idx}.png'
     )

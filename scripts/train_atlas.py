@@ -25,11 +25,6 @@ def main(args):
     **conf.trainer
   )
 
-  model._preview_predictions(0)
-  model._preview_predictions(1)
-  model._preview_predictions(2)
-  exit(0)
-
   # start training
   trainer.fit(model)
 

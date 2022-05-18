@@ -39,7 +39,7 @@ task:
   sigma: 1.0
   batch_size: 32
   num_workers: 1
-  vis_freq: 100
+  vis_freq: 10
 
   optimizer:
     learning_rate: 1e-3
@@ -68,12 +68,12 @@ checkpoint:
   monitor: val/loss
   save_last: true
   save_top_k: 20
-  every_n_epochs: 100
+  every_n_epochs: 10
   verbose: true
   mode: min
 
 trainer:
-  max_epochs: 10000
+  max_epochs: 100
   accelerator: gpu
   devices: [0]
   default_root_dir: /src/logs/kemono_atlas/
