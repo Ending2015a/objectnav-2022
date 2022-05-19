@@ -118,9 +118,10 @@ class AtlasDataset(Dataset):
     else:
       inds = np.random.randint(total_samples, size=(self.n_slices,))
     objectgoals = einops.repeat(objectgoal, ' -> s', s=self.n_slices)
-    # we dont use this charts as inputs so we dont need to repeat slices
+    # Note that here we assume the same chart is shared across all slices
+    # so we dont repeat slices
     charts = einops.repeat(chart, '... -> 1 ...')
-    chart_inps = einops.repeat(chart_inp, '... -> s ...', s=self.n_slices)
+    chart_inps = einops.repeat(chart_inp, '... -> 1 ...')
     points = np.asarray(points[inds], dtype=np.float32)
     distances = np.asarray(distances[inds], dtype=np.float32)
     gradients = np.asarray(gradients[inds], dtype=np.float32)
@@ -141,7 +142,7 @@ class AtlasDataset(Dataset):
     data = {
       'objectgoal': objectgoals, # (s,)
       'chart': charts, # (1, 1, h, w)
-      'chart_inp': chart_inps, # (s, c, h, w)
+      'chart_inp': chart_inps, # (1, c, h, w)
       'point': points, # (s, 2)
       'distance': distances, # (s,)
       'gradient': gradients # (s, 2)
@@ -268,11 +269,14 @@ class AtlasTask(pl.LightningModule):
         chart = torch.unsqueeze(chart, dim=0) # (1, 1, h, w)
       # resize chart to input size
       chart_size = self.config.chart_size
+      batch_dims = chart.shape[:-3]
+      chart = chart.reshape((-1, *chart.shape[-3:]))
       chart = nn.functional.interpolate(
         chart,
         size = (chart_size, chart_size),
         mode = 'nearest'
       )
+      chart = chart.reshape((*batch_dims, *chart.shape[-3:]))
     if chart_cache is not None:
       chart_cache = torch.as_tensor(chart_cache, dtype=torch.float32,
         device=self.device)
@@ -326,11 +330,11 @@ class AtlasTask(pl.LightningModule):
     batch: Any,
     batch_idx: int
   ) -> torch.Tensor:
-    x = batch['point'].flatten(0, 1) # (b*s, 2)
-    cond = batch['objectgoal'].flatten(0, 1) # (b*s,)
-    chart = batch['chart_inp'].flatten(0, 1) # (b*s, c, h, w)
-    gm = batch['distance'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
-    dgm = batch['gradient'].flatten(0, 1) # (b*s, 2)
+    x = batch['point'] # (b, s, 2)
+    cond = batch['objectgoal'] # (b, s)
+    chart = batch['chart_inp'] # (b, 1, c, h, w)
+    gm = batch['distance'].unsqueeze(-1) # (b, s, 1)
+    dgm = batch['gradient']# (b, s, 2)
     # predict score
     _, s, _ = self(x, cond, chart, get_score=True)
     # compute geodesic score
@@ -356,11 +360,11 @@ class AtlasTask(pl.LightningModule):
     batch_idx: int
   ) -> torch.Tensor:
     torch.set_grad_enabled(True)
-    x = batch['point'].flatten(0, 1) # (b*s, 2)
-    cond = batch['objectgoal'].flatten(0, 1) # (b*s,)
-    chart = batch['chart_inp'].flatten(0, 1) # (b*s, c, h, w)
-    gm = batch['distance'].flatten(0, 1).unsqueeze(-1) # (b*s, 1)
-    dgm = batch['gradient'].flatten(0, 1) # (b*s, 2)
+    x = batch['point'] # (b, s, 2)
+    cond = batch['objectgoal'] # (b, s)
+    chart = batch['chart_inp'] # (b, s, c, h, w)
+    gm = batch['distance'].unsqueeze(-1) # (b, s, 1)
+    dgm = batch['gradient'] # (b, s, 2)
     # predict score
     _, s, _ = self(x, cond, chart, get_score=True)
     # compute geodesic score
