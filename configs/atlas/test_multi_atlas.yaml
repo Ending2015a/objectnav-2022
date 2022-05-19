@@ -1,5 +1,5 @@
 
-habitat_config: "/src/configs/test/test_hm3d.val_mini.rgbd.yaml"
+habitat_config: "/src/configs/test/test_hm3d.val.rgbd.yaml"
 
 goal_mapping:
   0: chair
@@ -37,30 +37,30 @@ task:
   num_classes: ${num_classes}
   chart_size: 128
   sigma: 1.0
-  batch_size: 32
-  num_workers: 1
-  vis_freq: 10
+  batch_size: 64
+  num_workers: 4
+  vis_freq: 50
 
   optimizer:
     learning_rate: 1e-3
 
   train_dataset:
-    root_path: /src/logs/atlas_dataset/val_mini/
-    n_slices: 32
+    root_path: /src/logs/atlas_dataset/val/
+    n_slices: 64
     img_size: [128, 128]
 
   eval_dataset:
-    root_path: /src/logs/atlas_dataset/val_mini/
-    n_slices: 32
+    root_path: /src/logs/atlas_dataset/val/
+    n_slices: 64
     shuffle: true
-    max_length: 100
+    max_length: 10000
     img_size: [128, 128]
 
   pred_dataset:
-    root_path: /src/logs/atlas_dataset/val_mini/
+    root_path: /src/logs/atlas_dataset/val/
     n_slices: 1
     shuffle: true
-    max_length: 10
+    max_length: 100
     get_chart_gt: true
     img_size: [128, 128]
 
@@ -68,14 +68,14 @@ checkpoint:
   monitor: val/loss
   save_last: true
   save_top_k: 20
-  every_n_epochs: 10
+  every_n_epochs: 100
   verbose: true
   mode: min
 
 trainer:
-  max_epochs: 100
+  max_epochs: 50000
   accelerator: gpu
-  devices: [0]
+  devices: [0, 1, 2]
   default_root_dir: /src/logs/kemono_atlas/
   gradient_clip_val: 0.5
   sync_batchnorm: true
@@ -84,18 +84,18 @@ trainer:
 
 # === sampler config ===
 
-num_episodes: 10
+num_episodes: 50
 
 sampler:
   goal_mapping: ${goal_mapping}
   meters_per_pixel_low: 0.1
-  meters_per_pixel_high: 0.03
+  meters_per_pixel_high: 0.05
   eps: 0.1
 
 sample:
-  dirpath: /src/logs/atlas_dataset/val_mini/
-  max_charts: 100
+  dirpath: /src/logs/atlas_dataset/val/
+  max_charts: 1000
   min_points: 10 # sample with points least than this number is discarded
-  chart_width: 600
-  chart_height: 600
+  chart_width: 360
+  chart_height: 360
   masking: true
