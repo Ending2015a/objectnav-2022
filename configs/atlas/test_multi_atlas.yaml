@@ -14,24 +14,24 @@ num_classes: 6
 task:
   toy_net:
     x_config:
-      _type_: 'identity'
+      _type_: identity
     cond_config:
-      _type_: 'one_hot'
+      _type_: one_hot
       num_classes: ${num_classes}
     vec_config:
-      _type_: 'mlp'
+      _type_: mlp
       mlp_units: [256]
-      use_swish: true
+      activ: SiLU
       final_activ: true
     chart_config:
-      _type_: 'nature_cnn'
+      _type_: nature_cnn
       mlp_units: [512]
-      use_swish: true
+      activ: SiLU
       final_activ: true
     fuse_config:
-      _type_: 'mlp'
+      _type_: mlp
       mlp_units: [256, 256, 1]
-      use_swish: true
+      activ: SiLU
       final_activ: false
 
   num_classes: ${num_classes}
