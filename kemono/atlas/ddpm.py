@@ -27,6 +27,10 @@ class Residual(nn.Module):
   def forward(self, x, *args, **kwargs):
     return self.fn(x, *args, **kwargs) + x
 
+
+def Upsample(dim):
+  return nn.ConvTranspose2d(dim, dim, 4, 2, 1)
+
 def Downsample(dim):
   return nn.Conv2d(dim, dim, 4, 2, 1)
 
@@ -130,7 +134,8 @@ class Attention(nn.Module):
     out = einops.rearrange(out, 'b h (x y) d -> b (h d) x y', x = h, y = w)
     return self.to_out(out)
 
-class DDPM_Encoder(nn.Module):
+@registry.register.atlas_ae('ddpm_unet')
+class Unet(nn.Module):
   def __init__(
     self,
     channels,
@@ -157,6 +162,7 @@ class DDPM_Encoder(nn.Module):
 
     # layers
     self.downs = nn.ModuleList([])
+    self.ups = nn.ModuleList([])
     num_resolutions = len(in_out)
 
     for ind, (dim_in, dim_out) in enumerate(in_out):
@@ -172,41 +178,70 @@ class DDPM_Encoder(nn.Module):
     mid_dim = dims[-1]
     self.mid_block1 = block_klass(mid_dim, mid_dim)
     self.mid_attn = Residual(PreNorm(mid_dim, Attention(mid_dim)))
-    self.mid_down = Downsample(mid_dim)
-    self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+    self.mid_block2 = block_klass(mid_dim, mid_dim)
+
+    for ind, (dim_in, dim_out) in enumerate(reversed(in_out[1:])):
+      is_last = ind >= (num_resolutions - 1)
+
+      self.ups.append(nn.ModuleList([
+        block_klass(dim_out * 2, dim_in),
+        block_klass(dim_in, dim_in),
+        Residual(PreNorm(dim_in, LinearAttention(dim_in))),
+        Upsample(dim_in) if not is_last else nn.Identity()
+      ]))
+
+    self.out_dim = channels
+
+    self.final_conv = nn.Sequential(
+      block_klass(dim, dim),
+      nn.Conv2d(dim, self.out_dim, 1)
+    )
 
 
   def forward(self, x):
     x = self.init_conv(x)
 
+    h = []
+
     for block1, block2, attn, downsample in self.downs:
       x = block1(x)
       x = block2(x)
       x = attn(x)
+      h.append(x)
       x = downsample(x)
 
     x = self.mid_block1(x)
     x = self.mid_attn(x)
-    x = self.mid_down(x)
-    x = self.avgpool(x)
+    x = self.mid_block2(x)
 
-    return x
+    for block1, block2, attn, upsample in self.ups:
+      x = torch.cat((x, h.pop()), dim=1)
+      x = block1(x)
+      x = block2(x)
+      x = attn(x)
+      x = upsample(x)
 
-@registry.register.atlas_net('ddpm')
-class DDPM(DelayedModule):
+    return self.final_conv(x)
+
+
+@registry.register.atlas_net('ddpm_encoder')
+class DDPM_Encoder(DelayedModule):
   def __init__(
     self,
     shape: Tuple[int, ...] = None,
-    mlp_units: List[int] = [1024],
-    activ: str = 'SiLU',
-    final_activ: bool = False
+    dim_mults = (1, 2, 4, 8),
+    resnet_block_groups = 8,
+    weights_path = None,
+    fixed_weights = False
   ):
     super().__init__()
-    self.mlp_units = mlp_units
-    self.activ = activ
-    self.final_activ = final_activ
+    self.dim_mults = dim_mults
+    self.resnet_block_groups = resnet_block_groups
+    self.weights_path = weights_path
+    self.fixed_weights = fixed_weights
     # ---
     self.input_shape = None
+    self.output_shape = None
     self.input_dim = None
     self.output_dim = None
     self._model = None
@@ -215,32 +250,44 @@ class DDPM(DelayedModule):
   
   def build(self, input_shape: torch.Size):
     assert len(input_shape) >= 3
-    self.input_shpae = input_shape
     input_shape = input_shape[-3:]
-    dim = input_shape[0]
-    encoder = DDPM_Encoder(dim)
-    # forard cnn to get output size
+    self.input_shpae = input_shape
+    dim = self.input_shpae[0]
+
+    # Create ddpm unet
+    unet = Unet(
+      dim,
+      dim_mults=self.dim_mults,
+      resnet_block_groups=self.resnet_block_groups
+    )
+    # load pretrained weights
+    if self.weights_path is not None:
+      state_dict = torch.load(self.weights_path)
+      unet.load_state_dict(state_dict)
+
+    # extract encoder parts from unet
+    layers = [unet.init_conv]
+    for block1, block2, attn, downsample in unet.downs:
+      layers.extend([block1, block2, attn, downsample])
+    encoder = nn.Sequential(*layers)
+
+    # fixed encoder weights
+    if self.fixed_weights:
+      for param in encoder.parameters():
+        param.requires_grad = False
+
+    self.encoder = encoder
+
+    # forward encoder to get output size
     dummy = torch.zeros((1, *input_shape), dtype=torch.float32)
-    outputs = encoder(dummy).detach()
-    outputs = torch.flatten(outputs, -3, -1)
-    # create mlp layers
-    mlp = kemono_model.MLP(
-      outputs.shape[-1],
-      mlp_units = self.mlp_units,
-      activ = self.activ,
-      final_activ = self.final_activ
-    )
-    self._model = nn.Sequential(
-      encoder,
-      nn.Flatten(start_dim=-3, end_dim=-1),
-      mlp
-    )
-    self.output_dim = mlp.output_dim
+    outputs = self.encoder(dummy).detach()
+    self.output_shape = outputs.shape[-3:]
+    self.output_dim = self.output_shape[0]
     self.mark_as_built()
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     batches = x.shape[:-3]
     x = x.reshape(-1, *x.shape[-3:])
-    x = self._model(x)
-    x = x.reshape(*batches, x.shape[-1])
+    x = self.encoder(x)
+    x = x.reshape(*batches, x.shape[-3:])
     return x

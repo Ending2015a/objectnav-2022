@@ -1,4 +1,5 @@
 # --- built in ---
+import math
 import copy
 from typing import (
   Any,
@@ -16,6 +17,7 @@ import rlchemy
 from rlchemy.lib.nets import DelayedModule
 from rlchemy import registry
 # --- my module ---
+
 
 def swish(x: torch.Tensor, beta: torch.Tensor) -> torch.Tensor:
   """Swish activation function
@@ -67,7 +69,7 @@ def get_activ_fn(
 
 @registry.register.atlas_activ('swish')
 class Swish(DelayedModule):
-  def __init__(self, dim: Optional[int] = None):
+  def __init__(self, dim: Optional[int] = None, **kwargs):
     super().__init__()
     if dim is not None:
       self.build(torch.Size([dim]))
@@ -80,7 +82,6 @@ class Swish(DelayedModule):
 
   def forward(self, x: torch.Tensor) -> torch.Tensor:
     return swish(x, self.beta)
-
 
 class Activ(DelayedModule):
   def __init__(
@@ -128,6 +129,31 @@ class Identity(DelayedModule):
   def forward(self, x):
     return x
 
+# class Conditioned(nn.Module):
+#   def __init__(
+#     self,
+#     layers: Union[nn.Sequential, nn.ModuleList, List, Tuple],
+#     return_cond: bool = True
+#   ):
+#     super().__init__()
+#     if isinstance(layers, (list, tuple)):
+#       layers = nn.ModuleList(layers)
+#     if isinstance(layers, nn.ModuleList):
+#       layers = nn.Sequential(*layers)
+#     self.layers = layers
+#     self.return_cond = return_cond
+  
+#   def forward(
+#     self,
+#     x: torch.Tensor,
+#     cond: torch.Tensor
+#   ) -> Tuple[torch.Tensor, torch.Tensor]:
+#     assert x.shape[:-1] == cond.shape[:-1]
+#     x = self.layers(torch.cat((x, cond), dim=-1))
+#     if self.return_cond:
+#       return x, cond
+#     else:
+#       return x
 
 @registry.register.atlas_net('mlp', default=True)
 class MLP(DelayedModule):
@@ -172,6 +198,79 @@ class MLP(DelayedModule):
     x = self._model(x)
     x = x.reshape(*batches, x.shape[-1])
     return x
+
+
+# @registry.register.atlas_net('cond_mlp', default=True)
+# class CondMLP(DelayedModule):
+#   def __init__(
+#     self,
+#     dim: Optional[int] = None,
+#     cond_dim: Optional[int] = None,
+#     mlp_units: List[int] = [64, 64],
+#     activ: str = 'SiLU',
+#     cond_final_layer: bool = False,
+#     final_activ: bool = False
+#   ):
+#     super().__init__()
+#     self.mlp_units = mlp_units
+#     self.activ = activ
+#     self.cond_final_layer = cond_final_layer
+#     self.final_activ = final_activ
+#     # ---
+#     self.input_dim = None
+#     self.output_dim = None
+#     self._model = None
+#     if dim is not None and cond_dim is not None:
+#       if isinstance(dim, int):
+#         dim = [dim]
+#       if isinstance(cond_dim, int):
+#         cond_dim = [cond_dim]
+#       self.build((torch.Size(dim), torch.Size(cond_dim)))
+
+#   def get_input_shapes(
+#     self,
+#     x: torch.Tensor,
+#     cond: torch.Tensor
+#   ) -> Tuple[torch.Size, torch.Size]:
+#     return x.shape, cond.shape
+
+#   def build(self, input_shapes: torch.Size):
+#     x_shape, cond_shape = input_shapes
+#     self.input_dim = x_shape[-1]
+#     in_dim = self.input_dim
+#     layers = []
+#     for idx, out_dim in enumerate(self.mlp_units):
+#       last_layer = (idx+1) == len(self.mlp_units)
+#       layer = []
+#       layer.append(nn.Linear(in_dim, out_dim))
+#       if not last_layer or self.final_activ:
+#         layer.append(
+#           Activ(out_dim, self.activ, inplace=True)
+#         )
+#       if not last_layer or self.cond_final_layer:
+#         layers.append(
+#           Conditioned(layer, return_cond=not last_layer)
+#         )
+#       in_dim = out_dim
+#     self._model = nn.Sequential(*layers)
+#     self.output_dim = out_dim
+#     self.mark_as_built()
+
+#   def forward(
+#     self,
+#     x: torch.Tensor,
+#     cond: torch.Tensor
+#   ) -> torch.Tensor:
+#     shape = torch.broadcast_shapes(x.shape[:-1], cond.shape[:-1])
+#     x = torch.broadcast_to(x, (*shape, x.shape[-1]))
+#     cond = torch.broadcast_to(cond, (*shape, cond.shape[-1]))
+
+#     batches = x.shape[:-1]
+#     x = x.reshape(-1, x.shape[-1])
+#     cond = cond.reshape(-1, cond.shape[-1])
+#     x = self._model(x, cond)
+#     x = x.reshape(*batches, x.shape[-1])
+#     return x
 
 @registry.register.atlas_net('nature_cnn')
 class NatureCnn(DelayedModule):
