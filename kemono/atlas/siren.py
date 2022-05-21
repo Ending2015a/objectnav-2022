@@ -72,8 +72,15 @@ class SIREN(DelayedModule):
   def build(self, input_shape: torch.Size):
     self.input_dim = input_shape[-1]
     in_dim = self.input_dim
-    layers = []
-    for idx, out_dim in enumerate(self.mlp_units):
+    out_dim = self.mlp_units[0]
+    layers = [
+      nn.Linear(in_dim, out_dim),
+      kemono_model.Activ(out_dim, 'sine', w0=self.w0_initial)
+    ]
+    in_dim = out_dim
+
+    for idx in range(1, len(self.mlp_units)):
+      out_dim = self.mlp_units[idx]
       layers.append(nn.Linear(in_dim, out_dim))
       if idx+1 != len(self.mlp_units) or self.final_activ:
         layers.append(
