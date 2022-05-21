@@ -53,7 +53,8 @@ class AtlasDataset(Dataset):
     shuffle: bool = False,
     max_length: Optional[int] = None,
     get_chart_gt: bool = False,
-    img_size: Optional[Tuple[int, int]] = None
+    img_size: Optional[Tuple[int, int]] = None,
+    append_coords: bool = False
   ):
     """_summary_
 
@@ -66,7 +67,7 @@ class AtlasDataset(Dataset):
       max_length (Optional[int], optional): _description_. Defaults to None.
       get_chart_gt (bool, optional): _description_. Defaults to False.
       img_size (Optional[Tuple[int, int]], optional): _description_. Defaults to None.
-    """    
+    """
 
     self.root_path = root_path
     self.n_slices = n_slices
@@ -75,6 +76,7 @@ class AtlasDataset(Dataset):
     self.max_length = max_length
     self.get_chart_gt = get_chart_gt
     self.img_size = img_size
+    self.append_coords = append_coords
 
     self.sample_list = glob_filenames(root_path, SAMPLE_GLOB_PATTERN)
     self.id_list = np.arange(len(self.sample_list))
@@ -137,6 +139,16 @@ class AtlasDataset(Dataset):
         size = self.img_size,
         mode = 'nearest'
       )
+
+    # Coordinate Conv
+    if self.append_coords:
+      height, width = chart_inps.shape[-2:]
+      mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
+      mesh = np.stack(mesh, axis=-1).astype(np.float32)
+      half = np.asarray((height, width), dtype=np.float32) / 2.
+      mesh = mesh / half - 1.0
+      mesh = einops.rearrange(mesh, 'h w c -> 1 c h w') # (1, 2, h, w)
+      chart_inps = np.concatenate((chart_inps, mesh), axis=1) # (1, 3, h, w)
 
     # prepare data
     data = {
@@ -334,7 +346,7 @@ class AtlasTask(pl.LightningModule):
     cond = batch['objectgoal'] # (b, s)
     chart = batch['chart_inp'] # (b, 1, c, h, w)
     gm = batch['distance'].unsqueeze(-1) # (b, s, 1)
-    dgm = batch['gradient']# (b, s, 2)
+    dgm = batch['gradient'] # (b, s, 2)
     # predict score
     _, s, _ = self(x, cond, chart, get_score=True)
     # compute geodesic score

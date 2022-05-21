@@ -650,37 +650,6 @@ class Runner():
       (120, 36)
     ]) # (h, w)
 
-    # episode_view_points = [
-    #   view_point.agent_state.position
-    #   for goal in env.current_episode.goals
-    #   for view_point in goal.view_points
-    # ]
-
-    # episode_goal_points = np.asarray([
-    #   goal.position
-    #   for goal in env.current_episode.goals
-    # ])
-    # episode_goal_points = self.to_2D_points(
-    #   episode_goal_points
-    # )
-
-    # topdown = np.zeros(self.topdown_map.shape, dtype=np.float32)
-    # topdown.fill(-1)
-    # for h in range(self.topdown_map.shape[0]):
-    #   for w in range(self.topdown_map.shape[1]):
-    #     if self.topdown_map[h, w]:
-    #       xp = np.asarray((w, h), dtype=np.float32).reshape((-1, 2))
-    #       xp = self.to_3D_points(xp)[0]
-    #       d = env.sim.geodesic_distance(
-    #         xp, episode_view_points, env.current_episode
-    #       )
-    #       topdown[h, w] = d
-    
-    # plt.figure(figsize=(3,6), dpi=300)
-    # plt.imshow(topdown)
-    # plt.scatter(episode_goal_points[...,0], episode_goal_points[...,1],
-    #   s=12, color='red')
-    # plt.show()
 
   def to_2D_points(self, x):
     """Convert world space 3D point to topdown space 2D point."""

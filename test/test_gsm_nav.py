@@ -1,5 +1,6 @@
 # --- built in ---
 import os
+import copy
 import sys
 import time
 import logging
@@ -14,6 +15,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+from matplotlib.colors import Normalize
 # --- my module ---
 import kemono
 from kemono.data.dataset import Dataset
@@ -417,6 +419,12 @@ class Runner():
     env = habitat.Env(config=config)
     self.env = env
     self.obs = env.reset()
+    cv2.imwrite(
+      os.path.join(vis_path, 'rgb.png'),
+      self.obs['rgb'][...,::-1]
+    )
+    cv2.imshow(os.path.join(vis_path, 'depth.png'),
+      np.concatenate((self.obs['depth']*255,)*3, axis=-1).astype(np.uint8))
     self.agent_pos = env.sim.get_agent(0).state.position
     self.agent_height = self.agent_pos[1]
     self.meters_per_pixel = 0.1
@@ -437,6 +445,14 @@ class Runner():
     self.n_goals = len(self.goals)
     self.vis_path = vis_path
 
+    # create vector color palatte
+    ph = np.linspace(0, 2*np.pi, 13)
+    u = np.cos(ph)
+    v = np.sin(ph)
+    colors = np.arctan2(v, u)
+    self.color_norm = Normalize()
+    self.color_norm.autoscale(colors)
+
   @property
   def habitat_env(self):
     return self.env
@@ -454,7 +470,7 @@ class Runner():
 
   def plot_energy_field(self, ax, goal_id, mask=False):
     height, width = self.topdown_map.shape
-    energy_map = np.zeros((height, width), dtype=np.float32)
+    energy_map = np.full((height, width), np.inf, dtype=np.float32)
     for h in range(height):
       for w in range(width):
         if (not mask) or (self.topdown_map[h, w]):
@@ -467,11 +483,13 @@ class Runner():
     # draw energy
     ax.grid(False)
     ax.axis('off')
-    ax.imshow(energy_map, cmap=plt.cm.viridis)
+    cmap = copy.copy(plt.cm.viridis)
+    cmap.set_bad(color='black')
+    ax.imshow(energy_map, cmap=cmap, interpolation='nearest')
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
-    ax.set_title("Estimated energy", fontsize=16)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
+    ax.set_title("Estimated energy", fontsize='xx-large')
 
   def plot_score_field(self, ax, goal_id, mask=False):
     height, width = self.topdown_map.shape
@@ -484,7 +502,7 @@ class Runner():
           xp = torch.from_numpy(xp).to(device=self.trainer.device)
           cond = torch.tensor([goal_id], device=self.trainer.device)
           s = self.trainer.model.score(xp, cond).detach().cpu().numpy()
-          score_map[h, w] = np.asarray((s[0][2], s[0][0]), dtype=np.float32)
+          score_map[h, w] = np.asarray((s[0][0], s[0][2]), dtype=np.float32)
     mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
     mesh = np.stack(mesh, axis=-1).astype(np.float32) # (y, x)
     mesh = mesh.reshape((-1, 2))
@@ -493,15 +511,22 @@ class Runner():
     mesh = mesh[~mask]
     score_map = score_map[~mask]
 
+    theta = np.arctan2(score_map[...,1], score_map[...,0])
+
     ax.grid(False)
     ax.axis('off')
-    ax.imshow(self.topdown_map, cmap='hot')
-    ax.quiver(mesh[...,1], mesh[...,0], score_map[...,1], score_map[...,0],
-      angles='xy', color='b')
+    ax.imshow(self.topdown_map, cmap='hot', interpolation='nearest')
+    ax.quiver(
+      mesh[...,1], mesh[...,0],
+      score_map[...,0], score_map[...,1],
+      color = plt.cm.hsv(self.color_norm(theta)),
+      angles = 'xy',
+      width = 0.002
+    )
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
-    ax.set_title("Estimated score", fontsize=16)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
+    ax.set_title("Estimated score", fontsize='xx-large')
 
   def plot_ground_truth(self, ax, goal_id):
     height, width = self.topdown_map.shape
@@ -514,7 +539,7 @@ class Runner():
           xp = torch.from_numpy(xp).to(device=self.trainer.device)
           cond = torch.tensor([goal_id], device=self.trainer.device)
           s = self.trainer.compute_geodesic_grad(xp, cond).detach().cpu().numpy()
-          score_map[h, w] = -np.asarray((s[0][2], s[0][0]), dtype=np.float32)
+          score_map[h, w] = -np.asarray((s[0][0], s[0][2]), dtype=np.float32)
     mesh = np.meshgrid(np.arange(height), np.arange(width), indexing='ij')
     mesh = np.stack(mesh, axis=-1).astype(np.float32) # (y, x)
     mesh = mesh.reshape((-1, 2))
@@ -522,15 +547,25 @@ class Runner():
     mask = np.logical_and(score_map[..., 0]==0, score_map[..., 1]==0)
     mesh = mesh[~mask]
     score_map = score_map[~mask]
+
+    theta = np.arctan2(score_map[...,1], score_map[...,0])
+
     ax.grid(False)
     ax.axis('off')
-    ax.imshow(self.topdown_map, cmap='hot')
-    ax.quiver(mesh[...,1], mesh[...,0], score_map[...,1], score_map[...,0],
-      angles='xy', color='b')
+    ax.imshow(self.topdown_map, cmap='hot', interpolation='nearest')
+    ax.quiver(
+      mesh[...,1], mesh[...,0],
+      score_map[...,0], score_map[...,1],
+      color = plt.cm.hsv(self.color_norm(theta)),
+      angles = 'xy',
+      width = 0.002,
+      headwidth = 4,
+      headlength = 6,
+    )
 
     goals = self.goals[goal_id]
-    ax.scatter(goals[..., 0], goals[..., 1], color='yellow', s=6)
-    ax.set_title("Ground truth", fontsize=16)
+    ax.scatter(goals[..., 0], goals[..., 1], color='red', s=6)
+    ax.set_title("Ground truth score", fontsize='xx-large')
 
 
   def visualize(self):
@@ -546,17 +581,17 @@ class Runner():
       plt.tight_layout()
       fig.savefig(vis_path, bbox_inches='tight', dpi=300, facecolor='white')
       plt.close('all')
-    for idx in range(self.n_goals):
-      name = f"goal{idx:02d}_{self.trainer.num_epochs:04d}.png"
-      os.makedirs(self.vis_path, exist_ok=True)
-      vis_path = os.path.join(self.vis_path, name)
-      fig, axs = plt.subplots(figsize=(9, 6), ncols=3, dpi=300)
-      self.plot_ground_truth(axs[0], idx)
-      self.plot_score_field(axs[1], idx, mask=False)
-      self.plot_energy_field(axs[2], idx, mask=False)
-      plt.tight_layout()
-      fig.savefig(vis_path, bbox_inches='tight', dpi=300, facecolor='white')
-      plt.close('all')
+    # for idx in range(self.n_goals):
+    #   name = f"goal{idx:02d}_{self.trainer.num_epochs:04d}.png"
+    #   os.makedirs(self.vis_path, exist_ok=True)
+    #   vis_path = os.path.join(self.vis_path, name)
+    #   fig, axs = plt.subplots(figsize=(9, 6), ncols=3, dpi=300)
+    #   self.plot_ground_truth(axs[0], idx)
+    #   self.plot_score_field(axs[1], idx, mask=False)
+    #   self.plot_energy_field(axs[2], idx, mask=False)
+    #   plt.tight_layout()
+    #   fig.savefig(vis_path, bbox_inches='tight', dpi=300, facecolor='white')
+    #   plt.close('all')
 
   def run(self):
     num_train_samples = 400000
@@ -580,7 +615,7 @@ class Runner():
       clipnorm = 100.,
       eps = 0.1,
       loss_type = 'gsm2',
-      noise_type = 'uniform',
+      noise_type = 'map',
     )
     # create datasets
     train_dataset = (
@@ -604,7 +639,7 @@ class Runner():
 
 
 def example():
-  vis_path = '/src/logs/gsm-multi-goal-uniform/visualize/'
+  vis_path = '/src/logs/gsm-multi-goal-uniform_color/visualize/'
   import logging
   logging.basicConfig()
   logging.root.setLevel(logging.INFO)
