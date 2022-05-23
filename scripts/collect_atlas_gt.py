@@ -77,7 +77,15 @@ def get_gpus(
     gpus = gpus * processes
   return gpus[:processes]
 
-def split_datasets(habitat_config, config, num_splits):
+
+def slice_dataset(
+  habitat_config,
+  config,
+  num_splits,
+  split_index,
+  process_index
+):
+  print(f'Process {process_index}: loading dataset')
   dataset = make_dataset(
     id_dataset = habitat_config.DATASET.TYPE,
     config = habitat_config.DATASET
@@ -93,6 +101,7 @@ def split_datasets(habitat_config, config, num_splits):
   episode_iterator = dataset.get_episode_iterator(
     **iter_option_dict
   )
+  print(f'Process {process_index}: sampling dataset')
   episodes = []
   try:
     for _ in range(config.skip_episodes):
@@ -100,21 +109,27 @@ def split_datasets(habitat_config, config, num_splits):
     # note that here we use dataset iterator to get
     # the sequence of episodes. The order of episodes
     # is expected to be same as we run habitat.Env.
-    for ep in range(num_episodes):
+    import tqdm
+    pbar = tqdm.tqdm(
+      range(num_episodes),
+      desc = f'Process {process_index}',
+      position = process_index,
+      leave = True
+    )
+    for ep in pbar:
       episodes.append(next(episode_iterator))
   except StopIteration:
     pass
+  print(f"Process {process_index}: slicing dataset")
   num_episodes = len(episodes)
   eps_per_split = num_episodes // num_splits
   remain = num_episodes % num_splits
-  new_datasets = []
-  for sp in range(num_splits):
-    new_dataset = copy.copy(dataset)
-    length = eps_per_split + int(sp < remain)
-    start = eps_per_split * sp + min(sp, remain)
-    new_dataset.episodes = episodes[start:start+length]
-    new_datasets.append(new_dataset)
-  return new_datasets
+  new_dataset = copy.copy(dataset)
+  length = eps_per_split + int(split_index < remain)
+  start = eps_per_split * split_index + min(split_index, remain)
+  new_dataset.episodes = episodes[start:start+length]
+  del dataset
+  return new_dataset
 
 def create_env(habitat_config, config, index=0):
   # get gpu list
@@ -129,9 +144,14 @@ def create_env(habitat_config, config, index=0):
   # create omegaconf
   config = OmegaConf.create(config)
   # Create dataset
-  num_splits = config.num_splits
-  datasets = split_datasets(habitat_config, config, num_splits=num_splits)
-  dataset = datasets[index]
+  split_index = config.start_split + index
+  dataset = slice_dataset(
+    habitat_config,
+    config,
+    num_splits = config.num_splits,
+    split_index = split_index,
+    process_index = index
+  )
   # Create base env
   env = Env(habitat_config, dataset)
   env = GTSamplerWrapper(env, config, index)
@@ -145,13 +165,10 @@ def create_env_fn(index, args):
 def main(args):
   config = kemono.utils.load_config(args.config, resolve=True)
   habitat_config = kemono.get_config(config.habitat_config)
-
-  start_idx = config.process_start_from
-  end_idx = start_idx + config.num_processes
   
   env_fns = [
     create_env_fn(i, (habitat_config, config))
-    for i in range(start_idx, end_idx)
+    for i in range(config.num_processes)
   ]
   env = SubprocVecEnv(env_fns)
   # start sampling
