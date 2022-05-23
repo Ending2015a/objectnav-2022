@@ -22,7 +22,7 @@ num_episodes: 30
 skip_episodes: 0
 num_processes: 2
 num_splits: 2
-start_splits: 0
+start_split: 0
 use_gpus: [0]
 
 gt_dirpath: /src/logs/atlas_dataset_gt/${split}
