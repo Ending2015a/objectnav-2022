@@ -1,0 +1,42 @@
+
+_import_:
+  - "/src/configs/envs/atlas_sampler.yaml"
+
+split: val_mini
+
+habitat_config: "/src/configs/test/test_hm3d.${split}.rgbd.yaml"
+
+goal_mapping:
+  0: chair
+  1: bed
+  2: plant
+  3: toilet
+  4: tv_monitor
+  5: sofa
+
+env_id: HabitatEnv-v0
+
+# === sampler config ===
+
+num_episodes: 20
+num_processes: 3
+use_gpus: [0]
+
+gt_dirpath: /src/logs/atlas_dataset_gt/${split}
+atlas_dirpath: /src/logs/atlas_dataset/${split}
+
+sampler:
+  goal_mapping: ${goal_mapping}
+  meters_per_pixel_low: 0.5
+  meters_per_pixel_high: 0.5
+  eps: 0.1
+
+sample:
+  find_gt_from_path: ${gt_dirpath}
+  compute_gt: true
+  every_n_steps: 5
+  maps: ['large_map', 'large_map_split'] # maps to save with chart
+  min_points: 100
+  chart_width: 360
+  chart_height: 360
+  dirpath: /src/logs/atlas_dataset

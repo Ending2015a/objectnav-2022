@@ -171,14 +171,7 @@ class AtlasSampler():
     self.meters_per_pixel_high = meters_per_pixel_high
     self.eps = eps
 
-    self.agent_height = 0.0
-    self.topdown_low = None
-    self.topdown_high = None
-    self.bounds = None
-    self.episode = None
-    self.goals = None
-    self._atlas = None
-    self._charts = None
+    self.reset()
 
   def dmap_to_topdown_map(
     self,
@@ -191,16 +184,46 @@ class AtlasSampler():
     topdown_map[~mask] = 1.0
     return topdown_map.astype(bool)
 
+  def get_episode_path(
+    self,
+    episode
+  ):
+    episode_id = int(episode.episode_id)
+    scene_id = os.path.basename(episode.scene_id).split('.')[0]
+    return os.path.join(scene_id, f'ep-{episode_id:04d}')
+
+  def reset(self):
+    self.agent_height = 0.0
+    self.topdown_low = None
+    self.topdown_high = None
+    self.bounds = None
+    self.episode = None
+    self.goals = None
+    self._atlas = None
+    self._charts = None
+    self.dmap_low = None
+    self.dmap_high = None
+    self.start_dmap_low = None
+    self.start_dmap_high = None
+    self.start_topdown_low = None
+    self.start_topdown_high = None
+    self.start_topdown_low_gt = None
+    self.start_topdown_high_gt = None
+
+
   def create_atlas(
     self,
     env: habitat.Env,
-    masking: bool = True
+    masking: bool = True,
+    compute_gt: bool = True,
+    find_gt_from_path: Optional[str] = None
   ):
     """Create a new atlas dataset
 
     Args:
       env (habitat.Env): habitat environment
     """
+    self.reset()
     self.env = env
     self.sim = env.sim
 
@@ -269,21 +292,36 @@ class AtlasSampler():
     data.info['objectgoal'] = objectgoal
     data.info['goals'] = goals_pos.copy().tolist()
     data.info['view_goals'] = self.goals.copy().tolist()
-    data.info['episode_path'] = os.path.join(scene_id, f'ep-{episode_id:04d}')
+    data.info['episode_path'] = self.get_episode_path(episode)
+
+    # find ground truth map from path
+    if find_gt_from_path is not None:
+      path = find_gt_from_path
+      episode_path = self.get_episode_path(episode)
+      fullpath = os.path.join(path, episode_path)
+      if os.path.exists(fullpath):
+        data_gt = AtlasData.load(fullpath)
+        if data_gt.topdown_low_gt is not None:
+          self.start_topdown_low_gt = data_gt.topdown_low_gt
+        if data_gt.topdown_high_gt is not None:
+          self.start_topdown_high_gt = data_gt.topdown_high_gt
 
     # compute ground truth map
-    self.start_topdown_low_gt = self.compute_ground_truth(
-      self.start_topdown_low,
-      self.start_dmap_low,
-      self.dmap_low,
-      masking
-    )
-    self.start_topdown_high_gt = self.compute_ground_truth(
-      self.start_topdown_high,
-      self.start_dmap_high,
-      self.dmap_high,
-      masking
-    )
+    if compute_gt:
+      if self.start_topdown_low_gt is None:
+        self.start_topdown_low_gt = self.compute_ground_truth(
+          self.start_topdown_low,
+          self.start_dmap_low,
+          self.dmap_low,
+          masking
+        )
+      if self.start_topdown_high_gt is None:
+        self.start_topdown_high_gt = self.compute_ground_truth(
+          self.start_topdown_high,
+          self.start_dmap_high,
+          self.dmap_high,
+          masking
+        )
     data.topdown_low_gt = self.start_topdown_low_gt
     data.topdown_high_gt = self.start_topdown_high_gt
 
@@ -321,7 +359,7 @@ class AtlasSampler():
     data = ChartData(
       objectgoal = self._atlas.info['objectgoal'],
       chart = chart.astype(bool),
-      chrt_gt = chart_gt.astype(np.float32),
+      chart_gt = chart_gt.astype(np.float32),
       maps = maps,
       center = center.astype(np.int64),
       points = points.astype(np.float32),
@@ -336,8 +374,8 @@ class AtlasSampler():
     total_charts += 1
     total_points += num_points
 
-    self._atlas.data.info['total_points'] = total_points
-    self._atlas.data.info['total_charts'] = total_charts
+    self._atlas.info['total_points'] = total_points
+    self._atlas.info['total_charts'] = total_charts
 
   def sample_charts(
     self,
@@ -410,6 +448,26 @@ class AtlasSampler():
       chart.save(chart_path)
       data.paths.append(chart_path)
     data.save(atlas_path)
+
+  def load_atlas(
+    self,
+    dirpath: str,
+    gt_only: bool = False
+  ):
+    """Load atlas from the directory
+
+    Args:
+      dirpath (str): directory path.
+      gt_only (bool, optional): load ground truth maps only.
+        Defaults to False.
+    """
+    data = AtlasData.load(dirpath)
+    if gt_only:
+      assert self._atlas is not None
+      self.start_topdown_low_gt = data.topdown_low_gt
+      self.start_topdown_high_gt = data.topdown_high_gt
+    else:
+      self._atlas = data
 
   def _sample_charts(
     self,

@@ -19,6 +19,9 @@ QUIT        = "q"
 class ManualController(BaseController):
   def __init__(self, *args, **kwargs):
     super().__init__(*args, **kwargs)
+
+    self._key_func = {}
+
     if self.action_map is None:
       if hasattr(self.env, 'from_habitat_action'):
         self.action_map = self.env.from_habitat_action
@@ -53,7 +56,16 @@ class ManualController(BaseController):
         print('Exit simulator')
         exit(0)
       else:
-        action = None
-        print("INVALID KEY")
+        if keystroke in self._key_func:
+          func = self._key_func[keystroke]
+          action = func(observations)
+          print(f"Invoke {func}")
+        else:
+          action = None
+          print("INVALID KEY")
       if action is not None:
         return self.action_map(action)
+
+  def register_key(self, key: int, func: Callable):
+    assert key not in self._key_func, 'Conflict'
+    self._key_func[key] = func

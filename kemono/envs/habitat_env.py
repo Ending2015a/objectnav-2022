@@ -13,6 +13,7 @@ import gym
 import habitat
 import numpy as np
 import habitat
+from habitat.datasets import make_dataset
 from habitat.core.dataset import Episode, EpisodeIterator
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
 from rlchemy import registry
@@ -45,6 +46,7 @@ class _HabitatEnvCore(habitat.RLEnv):
   def __init__(
     self,
     config: habitat.Config,
+    dataset = None,
     auto_stop: bool = False,
     enable_pitch: bool = False,
     enable_stop: bool = False,
@@ -52,6 +54,7 @@ class _HabitatEnvCore(habitat.RLEnv):
     spec_class: type = HabitatEnvSpec
   ):
     self.config = config
+    self._dataset = dataset
     self.tilt_angle = config.SIMULATOR.TILT_ANGLE
     self.auto_stop = auto_stop
     self.enable_pitch = enable_pitch
@@ -106,7 +109,12 @@ class _HabitatEnvCore(habitat.RLEnv):
     return self.map_to_action[habitat_action]
 
   def make_env(self):
-    self._env = habitat.Env(self.config)
+    if self._dataset is None:
+      self._dataset = make_dataset(
+        id_dataset = self.config.DATASET.TYPE,
+        config = self.config.DATASET
+      )
+    self._env = habitat.Env(self.config, dataset=self._dataset)
     self.observation_space = self.make_observation_space()
     self.action_space = self.make_action_space()
     self.number_of_episodes = self._env.number_of_episodes

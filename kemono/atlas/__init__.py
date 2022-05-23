@@ -4,3 +4,4 @@ from .dataset import ChartData
 from . import utils
 from . import ddpm
 from . import siren
+from . import vis

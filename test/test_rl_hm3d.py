@@ -7,6 +7,7 @@ import habitat
 from omegaconf import OmegaConf
 import numpy as np
 from habitat.sims.habitat_simulator.actions import HabitatSimActions
+from habitat.datasets import make_dataset
 # --- my module ---
 import kemono
 from kemono.envs import habitat_env
@@ -35,9 +36,18 @@ def render_scene(obs):
 def example():
   config = kemono.utils.load_config(OMEGACONF_PATH, resolve=True)
   habitat_config = kemono.get_config(CONFIG_PATH)
+  # habitat_config.defrost()
+  # habitat_config.ENVIRONMENT.ITERATOR_OPTIONS.CYCLE = False
+  # habitat_config.freeze()
+  dataset = make_dataset(
+    id_dataset = habitat_config.DATASET.TYPE,
+    config = habitat_config.DATASET
+  )
+  # dataset.episodes = dataset.episodes[:3]
   env = habitat_env.make(
     ENV_ID,
     habitat_config,
+    dataset,
     auto_stop = False,
     enable_pitch = True,
     enable_stop = True
@@ -67,11 +77,6 @@ def example():
   print("Environment creation successful")
   while True:
     observations = env.reset()
-    topdown_view = env.habitat_env.sim.pathfinder.get_topdown_view(
-      0.03, env.habitat_env.sim.get_agent(0).state.position[1]
-    )
-    topdown_map = np.stack((topdown_view.astype(np.uint8),)*3, axis=-1) * 255
-    cv2.imshow('Topdown map', topdown_map)
 
 
     controller.reset()
