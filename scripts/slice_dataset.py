@@ -1,4 +1,5 @@
 # --- built in ---
+import os
 import copy
 import argparse
 from typing import (
@@ -80,79 +81,53 @@ def get_gpus(
 
 def slice_dataset(
   habitat_config,
-  config,
-  num_splits,
-  split_index,
+  config
 ):
+  print(f'Loading dataset')
   dataset = make_dataset(
     id_dataset = habitat_config.DATASET.TYPE,
     config = habitat_config.DATASET
   )
   num_episodes = config.num_episodes
-  episodes = dataset.episodes[:num_episodes]
-  num_episodes = len(episodes)
-  # get chunks (every rep_ep size)
-  iterator_opts = habitat_config.ENVIRONMENT.ITERATOR_OPTIONS
-  rep_ep = iterator_opts.MAX_SCENE_REPEAT_EPISODES
-  start = split_index * rep_ep
-  episode_chunks = []
-  for chunk_idx in range(start, num_episodes, rep_ep * num_splits):
-    episode_chunks.extend(
-      episodes[chunk_idx:chunk_idx+rep_ep]
-    )
-  new_dataset = copy.copy(dataset)
-  new_dataset.episodes = episode_chunks
-  del dataset
-  return new_dataset
 
-def create_env(habitat_config, config, index=0):
-  # create omegaconf
-  config = OmegaConf.create(config)
-  # get gpu list
-  gpus = get_gpus(config.num_processes, config.use_gpus)
-  gpu = gpus[index]
-  # fapply gpu config
-  import torch
-  torch.cuda.set_device(gpu)
-  habitat_config.defrost()
-  habitat_config.SIMULATOR.HABITAT_SIM_V0.GPU_DEVICE_ID = gpu
-  if 'overwrite_data_path' in config:
-    habitat_config.DATASET.DATA_PATH = config.overwrite_data_path
-  if 'overwrite_scenes_dir' in config:
-    habitat_config.DATASET.SCENES_DIR = config.overwrite_scenes_dir
-  habitat_config.freeze()
-  # Create dataset
-  split_index = config.start_split + index
-  dataset = slice_dataset(
-    habitat_config,
-    config,
-    num_splits = config.num_splits,
-    split_index = split_index
+  iter_option_dict = {
+    k.lower(): v
+    for k, v in habitat_config.ENVIRONMENT.ITERATOR_OPTIONS.items()
+  }
+  iter_option_dict["seed"] = habitat_config.SEED
+  iter_option_dict["cycle"] = False
+  episode_iterator = dataset.get_episode_iterator(
+    **iter_option_dict
   )
-  # Create base env
-  env = Env(habitat_config, dataset)
-  env = GTSamplerWrapper(env, config, index)
-  return env
-
-def create_env_fn(index, args):
-  def _fn():
-    return create_env(*args, index)
-  return _fn
+  print(f'Sampling dataset')
+  episodes = []
+  try:
+    for _ in range(config.slice_dataset.skip_episodes):
+      next(episode_iterator)
+    # note that here we use dataset iterator to get
+    # the sequence of episodes. The order of episodes
+    # is expected to be same as we run habitat.Env.
+    import tqdm
+    for ep in tqdm.tqdm(range(num_episodes)):
+      episodes.append(next(episode_iterator))
+  except StopIteration:
+    pass
+  new_dataset = copy.copy(dataset)
+  new_dataset.episodes = episodes
+  return new_dataset
 
 def main(args):
   config = kemono.utils.load_config(args.config, resolve=True)
   habitat_config = kemono.get_config(config.habitat_config)
-  
-  env_fns = [
-    create_env_fn(i, (habitat_config, config))
-    for i in range(config.num_processes)
-  ]
-  env = SubprocVecEnv(env_fns)
-  # start sampling
-  env.reset()
-  env.step([None] * config.num_processes)
-  env.close()
 
+  dataset = slice_dataset(habitat_config, config)
+  dataset_json = dataset.to_json()
+  data_path = config.slice_dataset.data_path
+  os.makedirs(os.path.dirname(data_path), exist_ok=True)
+  # save dataset to json.gz
+  import gzip
+  with gzip.open(config.slice_dataset.data_path, 'wt') as f:
+    f.write(dataset_json)
 
 
 if __name__ == '__main__':

@@ -18,13 +18,20 @@ env_id: HabitatEnv-v0
 
 # === sampler config ===
 
-num_episodes: 30
-skip_episodes: 0
+slice_dataset:
+  num_episodes: 15
+  skip_episodes: 0
+  data_path: "/src/logs/atlas_dataset_gt/${split}.\
+    ${.skip_episodes}+${.num_episodes}.json.gz"
+
+num_episodes: 15
 num_processes: 2
 num_splits: 2
 start_split: 0
 use_gpus: [0]
 
+overwrite_data_path: ${slice_dataset.data_path}
+overwrite_scenes_dir: "/"
 gt_dirpath: /src/logs/atlas_dataset_gt/${split}
 atlas_dirpath: /src/logs/atlas_dataset/${split}
 
