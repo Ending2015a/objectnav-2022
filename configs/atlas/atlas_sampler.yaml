@@ -20,6 +20,7 @@ env_id: HabitatEnv-v0
 
 num_episodes: 20
 num_processes: 3
+process_start_from: 0
 use_gpus: [0]
 
 gt_dirpath: /src/logs/atlas_dataset_gt/${split}

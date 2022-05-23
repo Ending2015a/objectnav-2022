@@ -147,7 +147,7 @@ def main(args):
 
   env_fns = [
     create_env_fn(i, (habitat_config, config))
-    for i in range(config.num_processes)
+    for i in range(config.process_start_from, config.num_processes)
   ]
   env = SubprocVecEnv(env_fns)
   # start sampling
