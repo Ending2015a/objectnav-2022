@@ -13,7 +13,6 @@ from omegaconf import OmegaConf
 from habitat.datasets import make_dataset
 # --- my module ---
 import kemono
-from kemono.envs import habitat_env
 from kemono.envs.wrap import (
   SubprocVecEnv
 )
@@ -96,6 +95,8 @@ def split_datasets(habitat_config, config, num_splits):
   )
   episodes = []
   try:
+    for _ in range(config.skip_episodes):
+      next(episode_iterator)
     # note that here we use dataset iterator to get
     # the sequence of episodes. The order of episodes
     # is expected to be same as we run habitat.Env.
@@ -128,7 +129,7 @@ def create_env(habitat_config, config, index=0):
   # create omegaconf
   config = OmegaConf.create(config)
   # Create dataset
-  num_splits = config.num_processes
+  num_splits = config.num_splits
   datasets = split_datasets(habitat_config, config, num_splits=num_splits)
   dataset = datasets[index]
   # Create base env
@@ -145,9 +146,12 @@ def main(args):
   config = kemono.utils.load_config(args.config, resolve=True)
   habitat_config = kemono.get_config(config.habitat_config)
 
+  start_idx = config.process_start_from
+  end_idx = start_idx + config.num_processes
+  
   env_fns = [
     create_env_fn(i, (habitat_config, config))
-    for i in range(config.process_start_from, config.num_processes)
+    for i in range(start_idx, end_idx)
   ]
   env = SubprocVecEnv(env_fns)
   # start sampling

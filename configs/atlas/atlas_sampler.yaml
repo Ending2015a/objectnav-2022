@@ -2,7 +2,7 @@
 _import_:
   - "/src/configs/envs/atlas_sampler.yaml"
 
-split: train
+split: val_mini
 
 habitat_config: "/src/configs/test/test_hm3d.${split}.rgbd.yaml"
 
@@ -18,10 +18,12 @@ env_id: HabitatEnv-v0
 
 # === sampler config ===
 
-num_episodes: 8000
-num_processes: 18
+num_episodes: 30
+skip_episodes: 0
+num_splits: 2
 process_start_from: 0
-use_gpus: [0, 1, 2]
+num_processes: 2
+use_gpus: [0]
 
 gt_dirpath: /src/logs/atlas_dataset_gt/${split}
 atlas_dirpath: /src/logs/atlas_dataset/${split}
