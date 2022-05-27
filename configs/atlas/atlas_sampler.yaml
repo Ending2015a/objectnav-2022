@@ -2,7 +2,7 @@
 _import_:
   - "/src/configs/envs/atlas_sampler.yaml"
 
-split: val_mini
+split: train
 
 habitat_config: "/src/configs/test/test_hm3d.${split}.rgbd.yaml"
 
@@ -19,16 +19,16 @@ env_id: HabitatEnv-v0
 # === sampler config ===
 
 slice_dataset:
-  num_episodes: 15
+  num_episodes: 8000
   skip_episodes: 0
   data_path: "/src/logs/atlas_dataset_gt/${split}.\
     ${.skip_episodes}+${.num_episodes}.json.gz"
 
-num_episodes: 15
-num_processes: 2
-num_splits: 2
+num_episodes: 8000
+num_processes: 9
+num_splits: 18
 start_split: 0
-use_gpus: [0]
+use_gpus: [0, 1, 2]
 
 overwrite_data_path: ${slice_dataset.data_path}
 overwrite_scenes_dir: "/"

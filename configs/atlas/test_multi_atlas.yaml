@@ -21,37 +21,35 @@ task:
     vec_config:
       _type_: mlp
       mlp_units: [256]
-      activ: SiLU
       final_activ: true
     chart_config:
       _type_: nature_cnn
-      mlp_units: [512]
+      mlp_units: [768]
       activ: SiLU
       final_activ: true
     fuse_config:
       _type_: mlp
       mlp_units: [256, 256, 1]
-      activ: SiLU
       final_activ: false
 
   num_classes: ${num_classes}
   chart_size: 128
   sigma: 1.0
-  batch_size: 64
+  batch_size: 500
   num_workers: 4
   vis_freq: 50
 
   optimizer:
-    learning_rate: 1e-3
+    learning_rate: 5.0e-4
 
   train_dataset:
     root_path: /src/logs/atlas_dataset/val/
-    n_slices: 64
+    n_slices: 200
     img_size: [128, 128]
 
   eval_dataset:
     root_path: /src/logs/atlas_dataset/val/
-    n_slices: 64
+    n_slices: 200
     shuffle: true
     max_length: 10000
     img_size: [128, 128]
@@ -68,15 +66,16 @@ checkpoint:
   monitor: val/loss
   save_last: true
   save_top_k: 20
-  every_n_epochs: 100
+  every_n_epochs: 1
   verbose: true
   mode: min
 
 trainer:
   max_epochs: 50000
+  check_val_every_n_epoch: 1
   accelerator: gpu
   devices: [0, 1, 2]
-  default_root_dir: /src/logs/kemono_atlas/
+  default_root_dir: /src/logs/kemono_atlas_nature_cnn/coordconv/
   gradient_clip_val: 0.5
   sync_batchnorm: true
   #strategy: ddp_find_unused_parameters_true
